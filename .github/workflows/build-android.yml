@@ -6,76 +6,148 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  issues:
-    types: [opened]
 
 permissions:
   contents: read
 
 jobs:
   android-debug:
-    if: github.event_name != 'issues' || github.event.issue.title == 'BUILD_APK'
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.6.3
+    env:
+      GODOT_VERSION: 4.6.3
+      ANDROID_SDK_ROOT: /tmp/android-sdk
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Restore Godot project files
+      - name: Verify version 0.2 source
         shell: bash
         run: |
           set -euo pipefail
-          base64 --decode source/city-driving-source.zip.b64 > /tmp/city-driving-source.zip
-          rm -rf /tmp/city-driving-source
-          mkdir -p /tmp/city-driving-source
-          unzip -q /tmp/city-driving-source.zip -d /tmp/city-driving-source
-          cp -a /tmp/city-driving-source/city-driving-test-godot/. .
           test -f project.godot
           test -f main.tscn
           test -f scripts/main.gd
           test -f scripts/car.gd
+          test -f export_presets.cfg
+          grep -q 'handheld/orientation=0' project.godot
+          grep -q 'gl_compatibility' project.godot
+          grep -q 'architectures/armeabi-v7a=true' export_presets.cfg
 
-      - name: Verify build environment
+      - name: Download CC0 mobile city models
         shell: bash
         run: |
           set -euo pipefail
-          godot --version
-          echo "ANDROID_HOME=${ANDROID_HOME:-}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
+          rm -rf /tmp/kenney assets/models
+          mkdir -p /tmp/kenney/roads /tmp/kenney/buildings /tmp/kenney/cars assets/models
+          curl -fL --retry 4 -o /tmp/roads.zip https://opengameart.org/sites/default/files/kenney_city-kit-roads.zip
+          curl -fL --retry 4 -o /tmp/buildings.zip https://opengameart.org/sites/default/files/kenney_city-kit-commercial_2.1.zip
+          curl -fL --retry 4 -o /tmp/cars.zip https://opengameart.org/sites/default/files/kenney_toy-car-kit.zip
+          unzip -q /tmp/roads.zip -d /tmp/kenney/roads
+          unzip -q /tmp/buildings.zip -d /tmp/kenney/buildings
+          unzip -q /tmp/cars.zip -d /tmp/kenney/cars
+          mapfile -t road_files < <(find /tmp/kenney/roads -type f -iname '*.glb' | sort)
+          mapfile -t building_files < <(find /tmp/kenney/buildings -type f -iname '*.glb' | sort)
+          mapfile -t car_files < <(find /tmp/kenney/cars -type f -iname '*.glb' | sort)
+          test ${#road_files[@]} -ge 1
+          test ${#building_files[@]} -ge 8
+          test ${#car_files[@]} -ge 4
+          road_choice=$(printf '%s\n' "${road_files[@]}" | grep -Ei 'straight|road' | head -n 1 || true)
+          test -n "$road_choice" || road_choice=${road_files[0]}
+          cp "$road_choice" assets/models/road_straight.glb
+          for i in $(seq 1 8); do
+            printf -v target 'assets/models/building_%02d.glb' "$i"
+            cp "${building_files[$((i-1))]}" "$target"
+          done
+          cp "${car_files[0]}" assets/models/player_car.glb
+          cp "${car_files[1]}" assets/models/traffic_car_01.glb
+          cp "${car_files[2]}" assets/models/traffic_car_02.glb
+          cp "${car_files[3]}" assets/models/traffic_car_03.glb
+          du -h assets/models/*
 
-      - name: Import project and validate scripts
+      - name: Install official Android SDK 35
         shell: bash
         run: |
           set -euo pipefail
-          godot --headless --editor --quit --path .
+          rm -rf "$ANDROID_SDK_ROOT" /tmp/android-tools /tmp/android-tools.zip
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest" /tmp/android-tools
+          curl -fL --retry 4 -o /tmp/android-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+          unzip -q /tmp/android-tools.zip -d /tmp/android-tools
+          cp -a /tmp/android-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
+          "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "build-tools;35.0.1" "platforms;android-35"
 
-      - name: Export installable debug APK
+      - name: Configure Godot Android environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          template_source=$(find /root/.local/share/godot -type f -name android_debug.apk -printf '%h\n' | head -n 1)
+          template_target="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$template_target"
+          cp -a "$template_source"/. "$template_target"/
+          java_home=${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")}
+          mkdir -p "$HOME/.config/godot"
+          printf '[gd_resource format=3]\n\n[resource]\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "%s"\nexport/android/debug_keystore = "/root/debug.keystore"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' "$java_home" "$ANDROID_SDK_ROOT" > "$HOME/.config/godot/editor_settings-4.6.tres"
+          test -f "$template_target/android_debug.apk"
+          test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner"
+
+      - name: Import and validate project
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --headless --editor --quit --path . 2>&1 | tee import.log
+          ! grep -E 'SCRIPT ERROR|Parse Error' import.log
+
+      - name: Smoke test game startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 40s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
+          grep -q 'CITY_DRIVING_READY' smoke-test.log
+
+      - name: Export installable APK
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build/android
-          godot --headless --verbose --path . --export-debug "Android" build/android/CityDrivingTest-debug.apk
-          test -f build/android/CityDrivingTest-debug.apk
+          godot --headless --verbose --path . --export-debug Android build/android/CityDrivingTest-v0.2.apk 2>&1 | tee build/android/export.log
+          test -f build/android/CityDrivingTest-v0.2.apk
 
-      - name: Check APK size
+      - name: Verify APK compatibility and size
         shell: bash
         run: |
           set -euo pipefail
-          ls -lh build/android/CityDrivingTest-debug.apk
-          size=$(stat -c%s build/android/CityDrivingTest-debug.apk)
-          limit=$((100 * 1024 * 1024))
+          apk=build/android/CityDrivingTest-v0.2.apk
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose "$apk"
+          unzip -tq "$apk"
+          size=$(stat -c%s "$apk")
           echo "APK size: $size bytes"
-          if [ "$size" -gt "$limit" ]; then
-            echo "APK exceeds the 100 MiB limit"
-            exit 1
-          fi
+          test "$size" -le $((100 * 1024 * 1024))
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging "$apk" | tee build/android/badging.txt
+          grep -q "native-code: 'armeabi-v7a'" build/android/badging.txt
+          grep -q "sdkVersion:'24'" build/android/badging.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: CityDrivingTest-APK
-          path: build/android/CityDrivingTest-debug.apk
+          name: CityDrivingTest-v0.2-APK
+          path: build/android/CityDrivingTest-v0.2.apk
           if-no-files-found: error
           compression-level: 0
+          retention-days: 30
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CityDrivingTest-v0.2-Diagnostics
+          path: |
+            import.log
+            smoke-test.log
+            build/android/export.log
+            build/android/badging.txt
+          if-no-files-found: ignore
+          retention-days: 3
