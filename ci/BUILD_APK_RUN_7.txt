@@ -1,0 +1,1 @@
+Trigger APK build with Java 17 compatible command-line tools and setup diagnostics.

@@ -1,0 +1,53 @@
+; City Driving Test v0.2 - Android 8.1 / low-end mobile
+config_version=5
+
+[application]
+config/name="City Driving Test"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+config/icon="res://icon.svg"
+boot_splash/bg_color=Color(0.02, 0.03, 0.05, 1)
+boot_splash/show_image=false
+run/max_fps=30
+
+[display]
+
+[display/window]
+size/viewport_width=1280
+size/viewport_height=720
+size/window_width_override=1280
+size/window_height_override=720
+stretch/mode="canvas_items"
+stretch/aspect="expand"
+handheld/orientation=0
+energy_saving/keep_screen_on=true
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
+textures/vram_compression/import_s3tc_bptc=false
+anti_aliasing/quality/msaa_3d=0
+occlusion_culling/use_occlusion_culling=false
+lights_and_shadows/directional_shadow/size=512
+
+[physics]
+common/physics_ticks_per_second=60
+
+[input]
+accelerate={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":87), Object(InputEventKey,"physical_keycode":4194320)]
+}
+brake={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":83), Object(InputEventKey,"physical_keycode":4194322)]
+}
+steer_left={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":65), Object(InputEventKey,"physical_keycode":4194311)]
+}
+steer_right={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":68), Object(InputEventKey,"physical_keycode":4194313)]
+}

@@ -1,0 +1,1 @@
+Trigger APK build after enabling ETC2 ASTC texture imports.
