@@ -54,8 +54,8 @@ func _process(delta: float) -> void:
 	ui_timer = 0.0
 	hud_speed.text = "%03d" % int(car.get_speed_kmh())
 	if next_checkpoint < checkpoints.size():
-		var target := checkpoints[next_checkpoint].global_position
-		var distance := car.global_position.distance_to(target)
+		var target: Vector3 = checkpoints[next_checkpoint].global_position
+		var distance: float = car.global_position.distance_to(target)
 		hud_status.text = "%dm" % int(distance)
 		navigation_arrow.text = _navigation_symbol(target)
 	else:
@@ -63,7 +63,7 @@ func _process(delta: float) -> void:
 		navigation_arrow.text = "✓"
 
 func _navigation_symbol(target: Vector3) -> String:
-	var local_target := car.to_local(target)
+	var local_target: Vector3 = car.to_local(target)
 	if absf(local_target.x) > maxf(8.0, absf(local_target.z) * 0.48):
 		return "↱" if local_target.x > 0.0 else "↰"
 	if local_target.z < 0.0:
@@ -110,18 +110,13 @@ func _create_environment() -> void:
 	add_child(sun)
 
 func _create_city_roads() -> void:
-	# Wide ground prevents the camera from showing empty space around the city corridor.
 	_add_static_box(Vector3(0.0, -0.55, -130.0), Vector3(220.0, 0.7, 340.0), Color(0.20, 0.27, 0.19))
-	# Two three-lane carriageways separated by a raised median.
 	_add_static_box(Vector3(-5.5, ROAD_SURFACE_Y, -120.0), Vector3(9.5, 0.32, MAIN_ROAD_LENGTH), Color(0.055, 0.060, 0.066))
 	_add_static_box(Vector3(5.5, ROAD_SURFACE_Y, -120.0), Vector3(9.5, 0.32, MAIN_ROAD_LENGTH), Color(0.055, 0.060, 0.066))
-	# Main-road sidewalks.
 	_add_static_box(Vector3(-12.0, 0.0, -120.0), Vector3(3.2, 0.30, MAIN_ROAD_LENGTH), Color(0.39, 0.40, 0.41))
 	_add_static_box(Vector3(12.0, 0.0, -120.0), Vector3(3.2, 0.30, MAIN_ROAD_LENGTH), Color(0.39, 0.40, 0.41))
-	# Median split around the junction to create a real turn opening.
 	_add_static_box(Vector3(0.0, 0.05, -96.0), Vector3(1.25, 0.38, 190.0), Color(0.31, 0.33, 0.31))
 	_add_static_box(Vector3(0.0, 0.05, -262.0), Vector3(1.25, 0.38, 44.0), Color(0.31, 0.33, 0.31))
-	# Cross street and sidewalks at the end of the first mission leg.
 	_add_static_box(Vector3(0.0, ROAD_SURFACE_Y, INTERSECTION_Z), Vector3(CROSS_ROAD_LENGTH, 0.32, 18.0), Color(0.055, 0.060, 0.066))
 	_add_static_box(Vector3(0.0, 0.0, INTERSECTION_Z - 11.0), Vector3(CROSS_ROAD_LENGTH, 0.30, 3.0), Color(0.39, 0.40, 0.41))
 	_add_static_box(Vector3(0.0, 0.0, INTERSECTION_Z + 11.0), Vector3(CROSS_ROAD_LENGTH, 0.30, 3.0), Color(0.39, 0.40, 0.41))
@@ -131,26 +126,24 @@ func _create_city_roads() -> void:
 
 func _create_main_lane_markings() -> void:
 	var transforms: Array[Transform3D] = []
-	for x in [-7.0, -4.0, 4.0, 7.0]:
+	for x_value in [-7.0, -4.0, 4.0, 7.0]:
 		for index in range(27):
 			var transform := Transform3D.IDENTITY
-			transform.origin = Vector3(x, 0.018, 12.0 - float(index) * 10.0)
+			transform.origin = Vector3(float(x_value), 0.018, 12.0 - float(index) * 10.0)
 			transforms.append(transform)
 	_add_multimesh_boxes(Vector3(0.13, 0.024, 3.6), Color(0.93, 0.93, 0.88), transforms)
-	# Solid white road edges.
-	for x in [-10.0, -1.0, 1.0, 10.0]:
-		_add_visual_box(Vector3(x, 0.018, -120.0), Vector3(0.12, 0.024, MAIN_ROAD_LENGTH), Color(0.94, 0.94, 0.90))
+	for x_value in [-10.0, -1.0, 1.0, 10.0]:
+		_add_visual_box(Vector3(float(x_value), 0.018, -120.0), Vector3(0.12, 0.024, MAIN_ROAD_LENGTH), Color(0.94, 0.94, 0.90))
 
 func _create_cross_lane_markings() -> void:
 	var transforms: Array[Transform3D] = []
-	for z in [INTERSECTION_Z - 3.0, INTERSECTION_Z + 3.0]:
+	for z_value in [INTERSECTION_Z - 3.0, INTERSECTION_Z + 3.0]:
 		for index in range(19):
-			var transform := Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(-86.0 + float(index) * 9.5, 0.018, z))
+			var transform := Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(-86.0 + float(index) * 9.5, 0.018, float(z_value)))
 			transforms.append(transform)
 	_add_multimesh_boxes(Vector3(0.13, 0.024, 3.4), Color(0.93, 0.93, 0.88), transforms)
 
 func _create_intersection_details() -> void:
-	# Stop lines and zebra crossings give the junction the visual structure of a driving game.
 	_add_visual_box(Vector3(5.5, 0.022, INTERSECTION_Z + 15.0), Vector3(9.0, 0.028, 0.36), Color.WHITE)
 	for index in range(6):
 		_add_visual_box(Vector3(-7.5 + float(index) * 3.0, 0.023, INTERSECTION_Z + 10.5), Vector3(1.5, 0.03, 4.4), Color(0.92, 0.92, 0.89))
@@ -174,11 +167,12 @@ func _create_traffic_light(position_value: Vector3, rotation_value: float) -> vo
 	var housing_instance := _make_colored_mesh(housing, Color(0.06, 0.07, 0.08))
 	housing_instance.position = Vector3(0.0, 4.35, 0.0)
 	root.add_child(housing_instance)
+	var lamp_colors: Array[Color] = [Color(0.85, 0.12, 0.08), Color(0.92, 0.63, 0.08), Color(0.10, 0.72, 0.22)]
 	for light_index in range(3):
 		var lamp := SphereMesh.new()
 		lamp.radius = 0.12
 		lamp.height = 0.24
-		var lamp_color := [Color(0.85, 0.12, 0.08), Color(0.92, 0.63, 0.08), Color(0.10, 0.72, 0.22)][light_index]
+		var lamp_color: Color = lamp_colors[light_index]
 		var lamp_instance := _make_colored_mesh(lamp, lamp_color)
 		lamp_instance.position = Vector3(0.0, 4.82 - float(light_index) * 0.46, -0.23)
 		root.add_child(lamp_instance)
@@ -196,15 +190,14 @@ func _create_city_assets() -> void:
 		if packed:
 			scenes.append(packed)
 	if scenes.is_empty():
-		# Development-only silhouettes. Final APK is not released until Sketchfab assets exist.
 		_create_city_silhouettes()
 		return
 	for row in range(8):
-		var z := 5.0 - float(row) * 34.0
+		var z_value := 5.0 - float(row) * 34.0
 		for side_index in range(2):
 			var side := -1.0 if side_index == 0 else 1.0
 			var building := scenes[(row * 2 + side_index) % scenes.size()].instantiate()
-			building.position = Vector3(side * 17.5, 0.0, z)
+			building.position = Vector3(side * 17.5, 0.0, z_value)
 			building.rotation.y = PI * 0.5 if side < 0.0 else -PI * 0.5
 			_make_model_mobile_fast(building)
 			add_child(building)
@@ -219,10 +212,10 @@ func _create_city_assets() -> void:
 
 func _create_city_silhouettes() -> void:
 	for index in range(8):
-		var z := 4.0 - float(index) * 34.0
-		for side in [-1.0, 1.0]:
+		var z_value := 4.0 - float(index) * 34.0
+		for side_value in [-1.0, 1.0]:
 			var height := 8.0 + float(index % 3) * 2.5
-			_add_visual_box(Vector3(side * 18.0, height * 0.5, z), Vector3(10.0, height, 18.0), Color(0.30, 0.34, 0.38))
+			_add_visual_box(Vector3(float(side_value) * 18.0, height * 0.5, z_value), Vector3(10.0, height, 18.0), Color(0.30, 0.34, 0.38))
 
 func _create_player() -> void:
 	car = CharacterBody3D.new()
@@ -263,7 +256,6 @@ func _create_hud() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_PASS
 	layer.add_child(root)
 
-	# Mission direction and distance, centered like a navigation HUD.
 	navigation_arrow = Label.new()
 	navigation_arrow.text = "↑"
 	_set_control_rect(navigation_arrow, 0.42, 0.02, 0.58, 0.18)
@@ -304,7 +296,6 @@ func _create_hud() -> void:
 	camera_button.pressed.connect(func() -> void: car.toggle_camera())
 	root.add_child(camera_button)
 
-	# Steering buttons use anchors, so they stay visible on every landscape aspect ratio.
 	_add_hold_button(root, "◀", 0.025, 0.70, 0.145, 0.96, "left", Color(0.08, 0.11, 0.14, 0.78))
 	_add_hold_button(root, "▶", 0.155, 0.70, 0.275, 0.96, "right", Color(0.08, 0.11, 0.14, 0.78))
 	_add_hold_button(root, "BRAKE", 0.69, 0.74, 0.82, 0.96, "brake", Color(0.50, 0.08, 0.07, 0.82))
