@@ -4,12 +4,15 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+  issues:
+    types: [opened]
 
 permissions:
   contents: read
 
 jobs:
   android-debug:
+    if: github.event_name != 'issues' || github.event.issue.title == 'BUILD_APK'
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.6.3
