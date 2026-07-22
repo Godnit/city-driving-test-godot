@@ -41,6 +41,8 @@ jobs:
           test -f main.tscn
           test -f scripts/main.gd
           test -f scripts/car.gd
+          test -f export_presets.cfg
+          sed -i '/^gradle_build\/min_sdk=/d; /^gradle_build\/target_sdk=/d' export_presets.cfg
 
       - name: Configure Godot Android environment
         shell: bash
