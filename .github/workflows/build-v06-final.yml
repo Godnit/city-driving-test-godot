@@ -52,19 +52,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p assets/audio /tmp/carsfx
+          mkdir -p assets/audio
           wget -q -O assets/audio/engine_idle.wav https://raw.githubusercontent.com/domasx2/banditracer-client/01db9b76381ab70c7d5f38c3678a04a2a4c23579/sounds/engine/loop_0.wav
           wget -q -O assets/audio/engine_high.wav https://raw.githubusercontent.com/domasx2/banditracer-client/01db9b76381ab70c7d5f38c3678a04a2a4c23579/sounds/engine/loop_4.wav
-          wget -q -O assets/audio/horn.wav https://opengameart.org/sites/default/files/car2.wav
-          wget -q -O /tmp/carsfx.zip https://opengameart.org/sites/default/files/car_sound_effects_pack.zip
-          unzip -q /tmp/carsfx.zip -d /tmp/carsfx
-          brake=$(find /tmp/carsfx -type f -iname 'brake_press*.ogg' | head -n 1)
-          test -n "$brake"
-          cp "$brake" assets/audio/brake.ogg
+          if ! wget -q -O assets/audio/horn.wav https://opengameart.org/sites/default/files/car2.wav; then
+            wget -q -O assets/audio/horn.wav https://raw.githubusercontent.com/FugitiveTheGame/Fugitive3D/aad96dd0f72c72aa0e40287699d577d06e237bab/common/game/mode/fugitive/cop_car/car_horn.wav
+          fi
           test -s assets/audio/engine_idle.wav
           test -s assets/audio/engine_high.wav
           test -s assets/audio/horn.wav
-          test -s assets/audio/brake.ogg
+          file assets/audio/*.wav
 
       - name: Write attribution
         shell: bash
@@ -74,7 +71,6 @@ jobs:
           - Complete Sedan — ChenZongHeng/car — MIT License
           - Engine loop samples — domasx2/banditracer-client — MIT License
           - Car Horn — Bart Kelsey — CC0
-          - Car Sound Effects Pack — Kenney — CC0 (audio only)
           EOF
 
       - name: Install Android SDK 35
