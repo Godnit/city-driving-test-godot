@@ -52,17 +52,29 @@ jobs:
           godot --headless --editor --quit --path .
 
       - name: Export installable debug APK
+        id: export_apk
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           mkdir -p build/android
-          godot --headless --verbose --path . --export-debug "Android" build/android/CityDrivingTest-debug.apk
-          test -f build/android/CityDrivingTest-debug.apk
+          godot --headless --verbose --path . --export-debug "Android" build/android/CityDrivingTest-debug.apk 2>&1 | tee build/android/export.log
+
+      - name: Upload export diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CityDrivingTest-BuildDiagnostics
+          path: build/android/export.log
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Check APK size
+        if: steps.export_apk.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
+          test -f build/android/CityDrivingTest-debug.apk
           ls -lh build/android/CityDrivingTest-debug.apk
           size=$(stat -c%s build/android/CityDrivingTest-debug.apk)
           limit=$((100 * 1024 * 1024))
@@ -73,9 +85,15 @@ jobs:
           fi
 
       - name: Upload APK
+        if: steps.export_apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: CityDrivingTest-APK
           path: build/android/CityDrivingTest-debug.apk
           if-no-files-found: error
           compression-level: 0
+
+      - name: Fail after diagnostics are saved
+        if: steps.export_apk.outcome != 'success'
+        shell: bash
+        run: exit 1
