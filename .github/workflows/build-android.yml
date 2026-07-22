@@ -20,6 +20,7 @@ jobs:
       image: barichello/godot-ci:4.6.3
     env:
       GODOT_VERSION: 4.6.3
+      ANDROID_SDK_ROOT: /tmp/android-sdk
       GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /root/debug.keystore
       GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
       GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
@@ -44,11 +45,32 @@ jobs:
           test -f export_presets.cfg
           sed -i '/^gradle_build\/min_sdk=/d; /^gradle_build\/target_sdk=/d' export_presets.cfg
 
+      - name: Install official Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$ANDROID_SDK_ROOT" /tmp/android-command-tools /tmp/android-command-tools.zip
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest" /tmp/android-command-tools
+          curl -fL --retry 3 --retry-delay 2 \
+            -o /tmp/android-command-tools.zip \
+            https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip
+          unzip -q /tmp/android-command-tools.zip -d /tmp/android-command-tools
+          cp -a /tmp/android-command-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
+          "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" \
+            "platform-tools" \
+            "build-tools;35.0.1" \
+            "platforms;android-35"
+          test -x "$ANDROID_SDK_ROOT/platform-tools/adb"
+          test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner"
+          test -d "$ANDROID_SDK_ROOT/platforms/android-35"
+
       - name: Configure Godot Android environment
         shell: bash
         run: |
           set -euo pipefail
-
           template_source="$(find /root/.local/share/godot -type f -name android_debug.apk -printf '%h\n' | head -n 1)"
           test -n "$template_source"
           template_target="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
@@ -61,22 +83,7 @@ jobs:
           if [ -z "$java_home" ]; then
             java_home="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
           fi
-          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-          if [ -z "$android_sdk" ]; then
-            android_sdk="$(dirname "$(dirname "$(readlink -f "$(command -v adb)")")")"
-          fi
           test -x "$java_home/bin/java"
-          test -x "$android_sdk/platform-tools/adb"
-
-          sdkmanager_path="$(find "$android_sdk" -type f -path '*/bin/sdkmanager' | head -n 1)"
-          test -x "$sdkmanager_path"
-          yes | "$sdkmanager_path" --sdk_root="$android_sdk" --licenses >/dev/null || true
-          yes | "$sdkmanager_path" --sdk_root="$android_sdk" \
-            "platform-tools" \
-            "build-tools;35.0.1" \
-            "platforms;android-35"
-          test -d "$android_sdk/build-tools/35.0.1"
-          test -d "$android_sdk/platforms/android-35"
 
           mkdir -p "$HOME/.config/godot"
           root_settings="$(find /root/.config/godot -maxdepth 1 -type f -name 'editor_settings*.tres' | head -n 1 || true)"
@@ -87,14 +94,14 @@ jobs:
           fi
           {
             printf '\nexport/android/java_sdk_path = "%s"\n' "$java_home"
-            printf 'export/android/android_sdk_path = "%s"\n' "$android_sdk"
+            printf 'export/android/android_sdk_path = "%s"\n' "$ANDROID_SDK_ROOT"
             printf 'export/android/debug_keystore = "/root/debug.keystore"\n'
             printf 'export/android/debug_keystore_user = "androiddebugkey"\n'
             printf 'export/android/debug_keystore_pass = "android"\n'
           } >> "$HOME/.config/godot/editor_settings-4.6.tres"
 
           echo "Java SDK: $java_home"
-          echo "Android SDK: $android_sdk"
+          echo "Android SDK: $ANDROID_SDK_ROOT"
           echo "Templates: $template_target"
 
       - name: Verify build environment
@@ -103,6 +110,7 @@ jobs:
           set -euo pipefail
           godot --version
           java -version
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt2" version
           test -f "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_debug.apk"
 
       - name: Import project and validate scripts
@@ -129,12 +137,14 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-      - name: Check APK size
+      - name: Verify APK and size
         if: steps.export_apk.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
           test -f build/android/CityDrivingTest-debug.apk
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose build/android/CityDrivingTest-debug.apk
+          unzip -tq build/android/CityDrivingTest-debug.apk
           ls -lh build/android/CityDrivingTest-debug.apk
           size=$(stat -c%s build/android/CityDrivingTest-debug.apk)
           limit=$((100 * 1024 * 1024))
@@ -152,6 +162,7 @@ jobs:
           path: build/android/CityDrivingTest-debug.apk
           if-no-files-found: error
           compression-level: 0
+          retention-days: 30
 
       - name: Fail after diagnostics are saved
         if: steps.export_apk.outcome != 'success'
