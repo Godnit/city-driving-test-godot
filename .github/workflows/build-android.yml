@@ -47,16 +47,16 @@ jobs:
             rm -rf assets/models
             mkdir -p assets/models
             base=https://raw.githubusercontent.com/KenneyNL/Starter-Kit-City-Builder/main/models
-            curl -fL --retry 4 -o assets/models/road_straight.glb "$base/road-straight.glb"
-            curl -fL --retry 4 -o assets/models/building_01.glb "$base/building-small-a.glb"
-            curl -fL --retry 4 -o assets/models/building_02.glb "$base/building-small-b.glb"
-            curl -fL --retry 4 -o assets/models/building_03.glb "$base/building-small-c.glb"
-            curl -fL --retry 4 -o assets/models/building_04.glb "$base/building-small-d.glb"
-            curl -fL --retry 4 -o assets/models/building_05.glb "$base/building-garage.glb"
+            wget -q -O assets/models/road_straight.glb "$base/road-straight.glb"
+            wget -q -O assets/models/building_01.glb "$base/building-small-a.glb"
+            wget -q -O assets/models/building_02.glb "$base/building-small-b.glb"
+            wget -q -O assets/models/building_03.glb "$base/building-small-c.glb"
+            wget -q -O assets/models/building_04.glb "$base/building-small-d.glb"
+            wget -q -O assets/models/building_05.glb "$base/building-garage.glb"
             cp assets/models/building_01.glb assets/models/building_06.glb
             cp assets/models/building_03.glb assets/models/building_07.glb
             cp assets/models/building_05.glb assets/models/building_08.glb
-            curl -fL --retry 4 -o assets/models/player_car.glb https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ToyCar/glTF-Binary/ToyCar.glb
+            wget -q -O assets/models/player_car.glb https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ToyCar/glTF-Binary/ToyCar.glb
             for file in assets/models/*.glb; do test -s "$file"; done
             sed -i 's#res://assets/models/traffic_car_0[123]\.glb#res://assets/models/player_car.glb#g' scripts/main.gd
             du -h assets/models/*
@@ -82,7 +82,7 @@ jobs:
           set -euo pipefail
           rm -rf "$ANDROID_SDK_ROOT" /tmp/android-tools /tmp/android-tools.zip
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest" /tmp/android-tools
-          curl -fL --retry 4 -o /tmp/android-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+          wget -q -O /tmp/android-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
           unzip -q /tmp/android-tools.zip -d /tmp/android-tools
           cp -a /tmp/android-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
           sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
