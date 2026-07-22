@@ -1,0 +1,76 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  android-debug:
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.6.3
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Restore Godot project files
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode source/city-driving-source.zip.b64 > /tmp/city-driving-source.zip
+          rm -rf /tmp/city-driving-source
+          mkdir -p /tmp/city-driving-source
+          unzip -q /tmp/city-driving-source.zip -d /tmp/city-driving-source
+          cp -a /tmp/city-driving-source/city-driving-test-godot/. .
+          test -f project.godot
+          test -f main.tscn
+          test -f scripts/main.gd
+          test -f scripts/car.gd
+
+      - name: Verify build environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --version
+          echo "ANDROID_HOME=${ANDROID_HOME:-}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
+
+      - name: Import project and validate scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --headless --editor --quit --path .
+
+      - name: Export installable debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/android
+          godot --headless --verbose --path . --export-debug "Android" build/android/CityDrivingTest-debug.apk
+          test -f build/android/CityDrivingTest-debug.apk
+
+      - name: Check APK size
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -lh build/android/CityDrivingTest-debug.apk
+          size=$(stat -c%s build/android/CityDrivingTest-debug.apk)
+          limit=$((100 * 1024 * 1024))
+          echo "APK size: $size bytes"
+          if [ "$size" -gt "$limit" ]; then
+            echo "APK exceeds the 100 MiB limit"
+            exit 1
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CityDrivingTest-APK
+          path: build/android/CityDrivingTest-debug.apk
+          if-no-files-found: error
+          compression-level: 0
