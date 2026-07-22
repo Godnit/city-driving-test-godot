@@ -6,15 +6,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  issues:
-    types: [opened]
 
 permissions:
   contents: read
 
 jobs:
   android-debug:
-    if: github.event_name != 'issues' || github.event.issue.title == 'BUILD_APK'
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.6.3
@@ -56,19 +53,14 @@ jobs:
             set -eux
             rm -rf "$ANDROID_SDK_ROOT" /tmp/android-command-tools /tmp/android-command-tools.zip
             mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest" /tmp/android-command-tools
-
             tools_url=https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
             if command -v curl >/dev/null 2>&1; then
               curl -fL --retry 3 --retry-delay 2 -o /tmp/android-command-tools.zip "$tools_url"
             elif command -v wget >/dev/null 2>&1; then
               wget -O /tmp/android-command-tools.zip "$tools_url"
             else
-              python3 - "$tools_url" /tmp/android-command-tools.zip <<'PY'
-import sys, urllib.request
-urllib.request.urlretrieve(sys.argv[1], sys.argv[2])
-PY
+              python3 -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' "$tools_url" /tmp/android-command-tools.zip
             fi
-
             unzip -q /tmp/android-command-tools.zip -d /tmp/android-command-tools
             cp -a /tmp/android-command-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
             sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
@@ -105,13 +97,11 @@ PY
           cp -a "$template_source"/. "$template_target"/
           test -f "$template_target/android_debug.apk"
           test -f "$template_target/android_release.apk"
-
           java_home="${JAVA_HOME:-}"
           if [ -z "$java_home" ]; then
             java_home="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
           fi
           test -x "$java_home/bin/java"
-
           mkdir -p "$HOME/.config/godot"
           root_settings="$(find /root/.config/godot -maxdepth 1 -type f -name 'editor_settings*.tres' | head -n 1 || true)"
           if [ -n "$root_settings" ]; then
@@ -126,10 +116,6 @@ PY
             printf 'export/android/debug_keystore_user = "androiddebugkey"\n'
             printf 'export/android/debug_keystore_pass = "android"\n'
           } >> "$HOME/.config/godot/editor_settings-4.6.tres"
-
-          echo "Java SDK: $java_home"
-          echo "Android SDK: $ANDROID_SDK_ROOT"
-          echo "Templates: $template_target"
 
       - name: Verify build environment
         if: steps.android_sdk.outcome == 'success'
@@ -175,14 +161,10 @@ PY
           test -f build/android/CityDrivingTest-debug.apk
           "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose build/android/CityDrivingTest-debug.apk
           unzip -tq build/android/CityDrivingTest-debug.apk
-          ls -lh build/android/CityDrivingTest-debug.apk
           size=$(stat -c%s build/android/CityDrivingTest-debug.apk)
           limit=$((100 * 1024 * 1024))
           echo "APK size: $size bytes"
-          if [ "$size" -gt "$limit" ]; then
-            echo "APK exceeds the 100 MiB limit"
-            exit 1
-          fi
+          test "$size" -le "$limit"
 
       - name: Upload APK
         if: steps.export_apk.outcome == 'success'
