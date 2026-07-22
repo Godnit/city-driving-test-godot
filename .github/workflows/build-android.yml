@@ -18,169 +18,136 @@ jobs:
     env:
       GODOT_VERSION: 4.6.3
       ANDROID_SDK_ROOT: /tmp/android-sdk
-      GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /root/debug.keystore
-      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
-      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Restore Godot project files
+      - name: Verify version 0.2 source
         shell: bash
         run: |
           set -euo pipefail
-          base64 --decode source/city-driving-source.zip.b64 > /tmp/city-driving-source.zip
-          rm -rf /tmp/city-driving-source
-          mkdir -p /tmp/city-driving-source
-          unzip -q /tmp/city-driving-source.zip -d /tmp/city-driving-source
-          cp -a /tmp/city-driving-source/city-driving-test-godot/. .
           test -f project.godot
           test -f main.tscn
           test -f scripts/main.gd
           test -f scripts/car.gd
           test -f export_presets.cfg
-          sed -i '/^gradle_build\/min_sdk=/d; /^gradle_build\/target_sdk=/d' export_presets.cfg
-          if ! grep -q '^textures/vram_compression/import_etc2_astc=true' project.godot; then
-            sed -i '/^\[rendering\]/a textures/vram_compression/import_etc2_astc=true' project.godot
-          fi
-          grep -q '^textures/vram_compression/import_etc2_astc=true' project.godot
+          grep -q 'handheld/orientation=0' project.godot
+          grep -q 'gl_compatibility' project.godot
+          grep -q 'architectures/armeabi-v7a=true' export_presets.cfg
 
-      - name: Install official Android SDK 35
-        id: android_sdk
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          mkdir -p build/setup
-          {
-            set -eux
-            rm -rf "$ANDROID_SDK_ROOT" /tmp/android-command-tools /tmp/android-command-tools.zip
-            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest" /tmp/android-command-tools
-            tools_url=https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
-            if command -v curl >/dev/null 2>&1; then
-              curl -fL --retry 3 --retry-delay 2 -o /tmp/android-command-tools.zip "$tools_url"
-            elif command -v wget >/dev/null 2>&1; then
-              wget -O /tmp/android-command-tools.zip "$tools_url"
-            else
-              python3 -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' "$tools_url" /tmp/android-command-tools.zip
-            fi
-            unzip -q /tmp/android-command-tools.zip -d /tmp/android-command-tools
-            cp -a /tmp/android-command-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
-            sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-            test -x "$sdkmanager"
-            java -version
-            yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
-            "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" \
-              "platform-tools" \
-              "build-tools;35.0.1" \
-              "platforms;android-35"
-            test -x "$ANDROID_SDK_ROOT/platform-tools/adb"
-            test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner"
-            test -d "$ANDROID_SDK_ROOT/platforms/android-35"
-          } 2>&1 | tee build/setup/android-sdk-install.log
-
-      - name: Upload Android SDK diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: CityDrivingTest-AndroidSDK-Diagnostics
-          path: build/setup/android-sdk-install.log
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Configure Godot Android environment
-        if: steps.android_sdk.outcome == 'success'
+      - name: Download CC0 mobile city models
         shell: bash
         run: |
           set -euo pipefail
-          template_source="$(find /root/.local/share/godot -type f -name android_debug.apk -printf '%h\n' | head -n 1)"
-          test -n "$template_source"
+          rm -rf /tmp/kenney assets/models
+          mkdir -p /tmp/kenney/roads /tmp/kenney/buildings /tmp/kenney/cars assets/models
+          curl -fL --retry 4 -o /tmp/roads.zip https://opengameart.org/sites/default/files/kenney_city-kit-roads.zip
+          curl -fL --retry 4 -o /tmp/buildings.zip https://opengameart.org/sites/default/files/kenney_city-kit-commercial_2.1.zip
+          curl -fL --retry 4 -o /tmp/cars.zip https://opengameart.org/sites/default/files/kenney_toy-car-kit.zip
+          unzip -q /tmp/roads.zip -d /tmp/kenney/roads
+          unzip -q /tmp/buildings.zip -d /tmp/kenney/buildings
+          unzip -q /tmp/cars.zip -d /tmp/kenney/cars
+          mapfile -t road_files < <(find /tmp/kenney/roads -type f -iname '*.glb' | sort)
+          mapfile -t building_files < <(find /tmp/kenney/buildings -type f -iname '*.glb' | sort)
+          mapfile -t car_files < <(find /tmp/kenney/cars -type f -iname '*.glb' | sort)
+          test ${#road_files[@]} -ge 1
+          test ${#building_files[@]} -ge 8
+          test ${#car_files[@]} -ge 4
+          road_choice=$(printf '%s\n' "${road_files[@]}" | grep -Ei 'straight|road' | head -n 1 || true)
+          test -n "$road_choice" || road_choice=${road_files[0]}
+          cp "$road_choice" assets/models/road_straight.glb
+          for i in $(seq 1 8); do
+            printf -v target 'assets/models/building_%02d.glb' "$i"
+            cp "${building_files[$((i-1))]}" "$target"
+          done
+          cp "${car_files[0]}" assets/models/player_car.glb
+          cp "${car_files[1]}" assets/models/traffic_car_01.glb
+          cp "${car_files[2]}" assets/models/traffic_car_02.glb
+          cp "${car_files[3]}" assets/models/traffic_car_03.glb
+          du -h assets/models/*
+
+      - name: Install official Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$ANDROID_SDK_ROOT" /tmp/android-tools /tmp/android-tools.zip
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest" /tmp/android-tools
+          curl -fL --retry 4 -o /tmp/android-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+          unzip -q /tmp/android-tools.zip -d /tmp/android-tools
+          cp -a /tmp/android-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
+          "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "build-tools;35.0.1" "platforms;android-35"
+
+      - name: Configure Godot Android environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          template_source=$(find /root/.local/share/godot -type f -name android_debug.apk -printf '%h\n' | head -n 1)
           template_target="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
           mkdir -p "$template_target"
           cp -a "$template_source"/. "$template_target"/
-          test -f "$template_target/android_debug.apk"
-          test -f "$template_target/android_release.apk"
-          java_home="${JAVA_HOME:-}"
-          if [ -z "$java_home" ]; then
-            java_home="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
-          fi
-          test -x "$java_home/bin/java"
+          java_home=${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")}
           mkdir -p "$HOME/.config/godot"
-          root_settings="$(find /root/.config/godot -maxdepth 1 -type f -name 'editor_settings*.tres' | head -n 1 || true)"
-          if [ -n "$root_settings" ]; then
-            cp "$root_settings" "$HOME/.config/godot/editor_settings-4.6.tres"
-          else
-            printf '[gd_resource format=3]\n\n[resource]\n' > "$HOME/.config/godot/editor_settings-4.6.tres"
-          fi
-          {
-            printf '\nexport/android/java_sdk_path = "%s"\n' "$java_home"
-            printf 'export/android/android_sdk_path = "%s"\n' "$ANDROID_SDK_ROOT"
-            printf 'export/android/debug_keystore = "/root/debug.keystore"\n'
-            printf 'export/android/debug_keystore_user = "androiddebugkey"\n'
-            printf 'export/android/debug_keystore_pass = "android"\n'
-          } >> "$HOME/.config/godot/editor_settings-4.6.tres"
+          printf '[gd_resource format=3]\n\n[resource]\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "%s"\nexport/android/debug_keystore = "/root/debug.keystore"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' "$java_home" "$ANDROID_SDK_ROOT" > "$HOME/.config/godot/editor_settings-4.6.tres"
+          test -f "$template_target/android_debug.apk"
+          test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner"
 
-      - name: Verify build environment
-        if: steps.android_sdk.outcome == 'success'
+      - name: Import and validate project
         shell: bash
         run: |
           set -euo pipefail
-          godot --version
-          java -version
-          "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt2" version
-          test -f "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_debug.apk"
+          godot --headless --editor --quit --path . 2>&1 | tee import.log
+          ! grep -E 'SCRIPT ERROR|Parse Error' import.log
 
-      - name: Import project and validate scripts
-        if: steps.android_sdk.outcome == 'success'
+      - name: Smoke test game startup
         shell: bash
         run: |
           set -euo pipefail
-          godot --headless --editor --quit --path .
+          timeout 40s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
+          grep -q 'CITY_DRIVING_READY' smoke-test.log
 
-      - name: Export installable debug APK
-        if: steps.android_sdk.outcome == 'success'
-        id: export_apk
-        continue-on-error: true
+      - name: Export installable APK
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
           mkdir -p build/android
-          godot --headless --verbose --path . --export-debug "Android" build/android/CityDrivingTest-debug.apk 2>&1 | tee build/android/export.log
+          godot --headless --verbose --path . --export-debug Android build/android/CityDrivingTest-v0.2.apk 2>&1 | tee build/android/export.log
+          test -f build/android/CityDrivingTest-v0.2.apk
 
-      - name: Upload export diagnostics
-        if: always() && steps.android_sdk.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: CityDrivingTest-BuildDiagnostics
-          path: build/android/export.log
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Verify APK and size
-        if: steps.export_apk.outcome == 'success'
+      - name: Verify APK compatibility and size
         shell: bash
         run: |
           set -euo pipefail
-          test -f build/android/CityDrivingTest-debug.apk
-          "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose build/android/CityDrivingTest-debug.apk
-          unzip -tq build/android/CityDrivingTest-debug.apk
-          size=$(stat -c%s build/android/CityDrivingTest-debug.apk)
-          limit=$((100 * 1024 * 1024))
+          apk=build/android/CityDrivingTest-v0.2.apk
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose "$apk"
+          unzip -tq "$apk"
+          size=$(stat -c%s "$apk")
           echo "APK size: $size bytes"
-          test "$size" -le "$limit"
+          test "$size" -le $((100 * 1024 * 1024))
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging "$apk" | tee build/android/badging.txt
+          grep -q "native-code: 'armeabi-v7a'" build/android/badging.txt
+          grep -q "sdkVersion:'24'" build/android/badging.txt
 
       - name: Upload APK
-        if: steps.export_apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: CityDrivingTest-APK
-          path: build/android/CityDrivingTest-debug.apk
+          name: CityDrivingTest-v0.2-APK
+          path: build/android/CityDrivingTest-v0.2.apk
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
 
-      - name: Fail after diagnostics are saved
-        if: steps.android_sdk.outcome != 'success' || steps.export_apk.outcome != 'success'
-        shell: bash
-        run: exit 1
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CityDrivingTest-v0.2-Diagnostics
+          path: |
+            import.log
+            smoke-test.log
+            build/android/export.log
+            build/android/badging.txt
+          if-no-files-found: ignore
+          retention-days: 3
