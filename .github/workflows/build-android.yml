@@ -1,4 +1,4 @@
-name: Validate Android Build
+name: Build Android APK v0.6
 
 on:
   workflow_dispatch:
@@ -21,7 +21,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify v0.4 responsive source
+      - name: Verify v0.6 source
         shell: bash
         run: |
           set -euo pipefail
@@ -29,17 +29,69 @@ jobs:
           test -f main.tscn
           test -f scripts/main.gd
           test -f scripts/car.gd
+          test -f scripts/camera_rig.gd
+          test -f scripts/traffic_car.gd
+          test -f scripts/driving_controls.gd
           test -f export_presets.cfg
-          test -f assets/sketchfab/README.md
-          grep -q 'size/viewport_width=640' project.godot
-          grep -q 'size/viewport_height=360' project.godot
-          grep -q 'stretch/mode="viewport"' project.godot
-          grep -q 'handheld/orientation=0' project.godot
-          grep -q 'common/physics_ticks_per_second=30' project.godot
-          grep -q '_set_control_rect' scripts/main.gd
-          grep -q '_create_gear_selector' scripts/main.gd
-          grep -q 'assets/sketchfab/player_car.glb' scripts/car.gd
-          ! grep -R -q 'assets/models/player_car.glb' scripts
+          for index in 00 01 02 03 04 05 06 07 08 09; do
+            test -s "assets_payload/part_${index}.b64"
+          done
+          grep -q 'emulate_mouse_from_touch=false' project.godot
+          grep -q 'common/physics_interpolation=true' project.godot
+          grep -q 'absf(speed) > 0.38' scripts/car.gd
+          grep -q 'InputEventScreenTouch' scripts/driving_controls.gd
+          grep -q 'assets/audio/engine_idle.wav' scripts/car.gd
+          grep -q 'assets_payload/\*\*' export_presets.cfg
+
+      - name: Restore optimized GLB assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p assets/models
+          cat assets_payload/part_*.b64 | tr -d '\n\r' | base64 -d > /tmp/models.tar.xz
+          echo '66519249c1973abbbea5e5edec26522e53d9732ab84a828ab0427e3f0052f536  /tmp/models.tar.xz' | sha256sum -c -
+          tar -xJf /tmp/models.tar.xz
+          test -s assets/models/player_sedan.glb
+          test -s assets/models/midcity_buildings.glb
+          test -s assets/models/curb_straight.glb
+          cp assets/models/player_sedan.glb assets/models/traffic_hatchback.glb
+          du -h assets/models/*.glb
+
+      - name: Download licensed vehicle sounds
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p assets/audio /tmp/carsfx
+          wget -q -O assets/audio/engine_idle.wav https://raw.githubusercontent.com/domasx2/banditracer-client/01db9b76381ab70c7d5f38c3678a04a2a4c23579/sounds/engine/loop_0.wav
+          wget -q -O assets/audio/engine_high.wav https://raw.githubusercontent.com/domasx2/banditracer-client/01db9b76381ab70c7d5f38c3678a04a2a4c23579/sounds/engine/loop_4.wav
+          wget -q -O assets/audio/horn.wav https://opengameart.org/sites/default/files/car2.wav
+          wget -q -O /tmp/carsfx.zip https://opengameart.org/sites/default/files/car_sound_effects_pack.zip
+          unzip -q /tmp/carsfx.zip -d /tmp/carsfx
+          brake=$(find /tmp/carsfx -type f -iname 'brake_press*.ogg' | head -n 1)
+          test -n "$brake"
+          cp "$brake" assets/audio/brake.ogg
+          for file in assets/audio/engine_idle.wav assets/audio/engine_high.wav assets/audio/horn.wav assets/audio/brake.ogg; do
+            test -s "$file"
+          done
+          du -h assets/audio/*
+
+      - name: Add licenses and attribution
+        shell: bash
+        run: |
+          cat > ATTRIBUTIONS.md <<'EOF'
+          # Third-party assets
+
+          - Generic Passenger Car Pack — Comrade1280 — CC BY 4.0
+            https://sketchfab.com/3d-models/generic-passenger-car-pack-20f9af9b8a404d5cb022ac6fe87f21f5
+          - Midcity Buildings Set — Daniel Zhabotinsky — CC BY 4.0
+            https://sketchfab.com/3d-models/midcity-buildings-set-low-poly-model-d5cbc471d20c4c9da31c3df656648916
+          - Engine loop samples — domasx2/banditracer-client — MIT License
+            https://github.com/domasx2/banditracer-client
+          - Car Horn — Bart Kelsey — CC0
+            https://opengameart.org/content/car-horn
+          - Car Sound Effects Pack — Kenney — CC0
+            https://opengameart.org/content/car-sound-effects
+          EOF
 
       - name: Install official Android SDK 35
         shell: bash
@@ -91,36 +143,48 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          timeout 35s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
+          timeout 40s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
           ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' smoke-test.log
-          grep -q 'CITY_DRIVING_READY' smoke-test.log
+          grep -q 'CITY_DRIVING_V06_READY' smoke-test.log
 
-      - name: Export code-test APK
+      - name: Export installable APK
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build/android
-          apk=build/android/CityDrivingTest-v0.4-CodeTest.apk
+          apk=build/android/CityDriveMissions-v0.6-Android8.1.apk
           godot --headless --verbose --path . --export-debug Android "$apk" 2>&1 | tee build/android/export.log
           test -f "$apk"
           ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' build/android/export.log
 
-      - name: Verify Android 8.1 compatibility
+      - name: Verify APK compatibility and size
         shell: bash
         run: |
           set -euo pipefail
-          apk=build/android/CityDrivingTest-v0.4-CodeTest.apk
+          apk=build/android/CityDriveMissions-v0.6-Android8.1.apk
           "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose "$apk"
           unzip -tq "$apk"
+          size=$(stat -c%s "$apk")
+          echo "APK size: $size bytes"
+          test "$size" -le $((100 * 1024 * 1024))
           "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging "$apk" | tee build/android/badging.txt
           grep -q "native-code: 'armeabi-v7a'" build/android/badging.txt
           grep -q "sdkVersion:'24'" build/android/badging.txt
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CityDriveMissions-v0.6-Android8.1-APK
+          path: build/android/CityDriveMissions-v0.6-Android8.1.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
 
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: CityDrivingTest-v0.4-Diagnostics
+          name: CityDriveMissions-v0.6-Diagnostics
           path: |
             import.log
             smoke-test.log
