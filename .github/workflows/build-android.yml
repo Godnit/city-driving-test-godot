@@ -33,28 +33,25 @@ jobs:
           test -f scripts/traffic_car.gd
           test -f scripts/driving_controls.gd
           test -f export_presets.cfg
-          for index in 00 01 02 03 04 05 06 07 08 09; do
-            test -s "assets_payload/part_${index}.b64"
-          done
           grep -q 'emulate_mouse_from_touch=false' project.godot
           grep -q 'common/physics_interpolation=true' project.godot
           grep -q 'absf(speed) > 0.38' scripts/car.gd
           grep -q 'InputEventScreenTouch' scripts/driving_controls.gd
           grep -q 'assets/audio/engine_idle.wav' scripts/car.gd
-          grep -q 'assets_payload/\*\*' export_presets.cfg
 
-      - name: Restore optimized GLB assets
+      - name: Download optimized GLB assets
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p assets/models
-          cat assets_payload/part_*.b64 | tr -d '\n\r' | base64 -d > /tmp/models.tar.xz
-          echo '66519249c1973abbbea5e5edec26522e53d9732ab84a828ab0427e3f0052f536  /tmp/models.tar.xz' | sha256sum -c -
-          tar -xJf /tmp/models.tar.xz
-          test -s assets/models/player_sedan.glb
-          test -s assets/models/midcity_buildings.glb
-          test -s assets/models/curb_straight.glb
+          base='https://raw.githubusercontent.com/Godnit/city-driving-test-godot/v0.5-real-assets/assets/models'
+          wget -q -O assets/models/player_sedan.glb "$base/player_sedan.glb"
+          wget -q -O assets/models/midcity_buildings.glb "$base/midcity_buildings.glb"
+          wget -q -O assets/models/curb_straight.glb "$base/curb_straight.glb"
           cp assets/models/player_sedan.glb assets/models/traffic_hatchback.glb
+          for file in assets/models/player_sedan.glb assets/models/midcity_buildings.glb assets/models/curb_straight.glb; do
+            test -s "$file"
+          done
           du -h assets/models/*.glb
 
       - name: Download licensed vehicle sounds
