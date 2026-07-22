@@ -1,0 +1,1 @@
+This repository builds City Drive Missions v0.6 from the v0.6-driving-rebuild branch and publishes a verified Android 8.1 ARMv7 APK after successful CI.
