@@ -36,35 +36,25 @@ jobs:
           grep -q 'gl_compatibility' project.godot
           grep -q 'architectures/armeabi-v7a=true' export_presets.cfg
 
-      - name: Download CC0 mobile city models
+      - name: Add CC0 mobile city and car models
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/kenney assets/models
-          mkdir -p /tmp/kenney/roads /tmp/kenney/buildings /tmp/kenney/cars assets/models
-          curl -fL --retry 4 -o /tmp/roads.zip https://opengameart.org/sites/default/files/kenney_city-kit-roads.zip
-          curl -fL --retry 4 -o /tmp/buildings.zip https://opengameart.org/sites/default/files/kenney_city-kit-commercial_2.1.zip
-          curl -fL --retry 4 -o /tmp/cars.zip https://opengameart.org/sites/default/files/kenney_toy-car-kit.zip
-          unzip -q /tmp/roads.zip -d /tmp/kenney/roads
-          unzip -q /tmp/buildings.zip -d /tmp/kenney/buildings
-          unzip -q /tmp/cars.zip -d /tmp/kenney/cars
-          mapfile -t road_files < <(find /tmp/kenney/roads -type f -iname '*.glb' | sort)
-          mapfile -t building_files < <(find /tmp/kenney/buildings -type f -iname '*.glb' | sort)
-          mapfile -t car_files < <(find /tmp/kenney/cars -type f -iname '*.glb' | sort)
-          test ${#road_files[@]} -ge 1
-          test ${#building_files[@]} -ge 8
-          test ${#car_files[@]} -ge 4
-          road_choice=$(printf '%s\n' "${road_files[@]}" | grep -Ei 'straight|road' | head -n 1 || true)
-          test -n "$road_choice" || road_choice=${road_files[0]}
-          cp "$road_choice" assets/models/road_straight.glb
+          rm -rf /tmp/kenney-city assets/models
+          mkdir -p assets/models
+          git clone --depth 1 https://github.com/KenneyNL/Starter-Kit-City-Builder.git /tmp/kenney-city
+          test -f /tmp/kenney-city/models/road-straight.glb
+          cp /tmp/kenney-city/models/road-straight.glb assets/models/road_straight.glb
+          mapfile -t building_files < <(find /tmp/kenney-city/models -maxdepth 1 -type f -name 'building-*.glb' | sort)
+          test ${#building_files[@]} -ge 4
           for i in $(seq 1 8); do
             printf -v target 'assets/models/building_%02d.glb' "$i"
-            cp "${building_files[$((i-1))]}" "$target"
+            source_index=$(( (i - 1) % ${#building_files[@]} ))
+            cp "${building_files[$source_index]}" "$target"
           done
-          cp "${car_files[0]}" assets/models/player_car.glb
-          cp "${car_files[1]}" assets/models/traffic_car_01.glb
-          cp "${car_files[2]}" assets/models/traffic_car_02.glb
-          cp "${car_files[3]}" assets/models/traffic_car_03.glb
+          curl -fL --retry 4 -o assets/models/player_car.glb https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ToyCar/glTF-Binary/ToyCar.glb
+          test -s assets/models/player_car.glb
+          sed -i 's#res://assets/models/traffic_car_0[123]\.glb#res://assets/models/player_car.glb#g' scripts/main.gd
           du -h assets/models/*
 
       - name: Install official Android SDK 35
