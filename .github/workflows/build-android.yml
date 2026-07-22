@@ -39,19 +39,19 @@ jobs:
           grep -q 'InputEventScreenTouch' scripts/driving_controls.gd
           grep -q 'assets/audio/engine_idle.wav' scripts/car.gd
 
-      - name: Download optimized GLB assets
+      - name: Download realistic MIT sedan
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p assets/models
-          base='https://raw.githubusercontent.com/Godnit/city-driving-test-godot/v0.5-real-assets/assets/models'
-          wget -q -O assets/models/player_sedan.glb "$base/player_sedan.glb"
-          wget -q -O assets/models/midcity_buildings.glb "$base/midcity_buildings.glb"
-          wget -q -O assets/models/curb_straight.glb "$base/curb_straight.glb"
+          url='https://media.githubusercontent.com/media/monstercameron/vkPathTracer/c3f130bff9334b8e927ba7c97360d70b0c5862ad/assets/models/complete_sedan/complete_sedan.glb'
+          wget -q -O assets/models/player_sedan.glb "$url"
+          test -s assets/models/player_sedan.glb
+          size=$(stat -c%s assets/models/player_sedan.glb)
+          echo "Sedan size: $size bytes"
+          test "$size" -gt 1000000
+          test "$size" -lt $((30 * 1024 * 1024))
           cp assets/models/player_sedan.glb assets/models/traffic_hatchback.glb
-          for file in assets/models/player_sedan.glb assets/models/midcity_buildings.glb assets/models/curb_straight.glb; do
-            test -s "$file"
-          done
           du -h assets/models/*.glb
 
       - name: Download licensed vehicle sounds
@@ -78,15 +78,13 @@ jobs:
           cat > ATTRIBUTIONS.md <<'EOF'
           # Third-party assets
 
-          - Generic Passenger Car Pack — Comrade1280 — CC BY 4.0
-            https://sketchfab.com/3d-models/generic-passenger-car-pack-20f9af9b8a404d5cb022ac6fe87f21f5
-          - Midcity Buildings Set — Daniel Zhabotinsky — CC BY 4.0
-            https://sketchfab.com/3d-models/midcity-buildings-set-low-poly-model-d5cbc471d20c4c9da31c3df656648916
+          - Complete Sedan — source repository ChenZongHeng/car — MIT License
+            https://github.com/monstercameron/vkPathTracer/tree/c3f130bff9334b8e927ba7c97360d70b0c5862ad/assets/models/complete_sedan
           - Engine loop samples — domasx2/banditracer-client — MIT License
             https://github.com/domasx2/banditracer-client
           - Car Horn — Bart Kelsey — CC0
             https://opengameart.org/content/car-horn
-          - Car Sound Effects Pack — Kenney — CC0
+          - Car Sound Effects Pack — Kenney — CC0 (audio only)
             https://opengameart.org/content/car-sound-effects
           EOF
 
@@ -140,7 +138,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          timeout 40s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
+          timeout 60s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
           ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' smoke-test.log
           grep -q 'CITY_DRIVING_V06_READY' smoke-test.log
 
