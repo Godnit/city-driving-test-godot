@@ -1,0 +1,33 @@
+name: Publish Android APK v0.6
+
+on:
+  workflow_run:
+    workflows: ["Build Android APK v0.6"]
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'v0.6-driving-rebuild' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download verified APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: CityDriveMissions-v0.6-Android8.1-APK
+          path: release
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Publish direct-download release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.6.0
+          name: City Drive Missions v0.6
+          body: Android 8.1 / ARMv7 verified build.
+          prerelease: false
+          files: release/CityDriveMissions-v0.6-Android8.1.apk
