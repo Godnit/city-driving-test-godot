@@ -61,7 +61,7 @@ jobs:
           test -s assets/audio/engine_idle.wav
           test -s assets/audio/engine_high.wav
           test -s assets/audio/horn.wav
-          file assets/audio/*.wav
+          stat -c '%n %s bytes' assets/audio/*.wav
 
       - name: Write attribution
         shell: bash
