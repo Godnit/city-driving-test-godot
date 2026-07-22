@@ -11,14 +11,14 @@ permissions:
 
 jobs:
   build-and-publish:
-    if: ${{ github.event.issue.title == 'build-and-publish-v0.6' }}
+    if: ${{ github.event.issue.title == 'build-and-publish-v0.6-final' }}
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
       ISSUE_NUMBER: ${{ github.event.issue.number }}
-      BRANCH: v0.6-driving-rebuild
-      WORKFLOW: build-android.yml
+      BRANCH: main
+      WORKFLOW: build-v06-final.yml
       ARTIFACT: CityDriveMissions-v0.6-Android8.1-APK
       APK: CityDriveMissions-v0.6-Android8.1.apk
     steps:
