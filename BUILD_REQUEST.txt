@@ -1,0 +1,4 @@
+Build request 1
+Project: City Driving Test
+Target: Android debug APK
+Maximum size: 100 MiB
