@@ -1,173 +1,205 @@
 extends CharacterBody3D
 
 var speed: float = 0.0
-var steer_value: float = 0.0
-var controls: Dictionary = {"accelerate": false, "brake": false, "left": false, "right": false}
+var steer_input: float = 0.0
+var steer_visual: float = 0.0
+var throttle_pressed: bool = false
+var brake_pressed: bool = false
 var gear: String = "D"
-var cameras: Array[Camera3D] = []
-var camera_index: int = 0
+var visual_root: Node3D
+var wheel_pivots: Array[Node3D] = []
+var front_wheel_pivots: Array[Node3D] = []
+var wheel_spin: float = 0.0
+var engine_idle: AudioStreamPlayer
+var engine_high: AudioStreamPlayer
+var horn_player: AudioStreamPlayer
+var brake_player: AudioStreamPlayer
+var brake_was_pressed: bool = false
 
-const MAX_FORWARD: float = 21.5
-const MAX_REVERSE: float = 6.0
-const ACCELERATION: float = 9.5
-const REVERSE_ACCELERATION: float = 6.0
-const BRAKE_POWER: float = 18.0
-const COAST_DECEL: float = 3.8
-const STEER_SPEED: float = 1.55
-const GRAVITY: float = 20.0
+const MAX_FORWARD: float = 25.0
+const MAX_REVERSE: float = 6.5
+const WHEEL_RADIUS: float = 0.34
+const GRAVITY: float = 22.0
 
 func _ready() -> void:
 	collision_layer = 1
 	collision_mask = 1
 	var collision := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(1.78, 0.95, 3.85)
+	shape.size = Vector3(1.72, 0.95, 3.95)
 	collision.shape = shape
-	collision.position.y = 0.5
+	collision.position.y = 0.48
 	add_child(collision)
-	_load_sketchfab_car()
-	_create_cameras()
+	_load_vehicle_visual()
+	_create_audio()
 
-func _load_sketchfab_car() -> void:
-	var model_path := "res://assets/sketchfab/player_car.glb"
-	if not ResourceLoader.exists(model_path):
-		push_warning("Sketchfab player car is not installed yet: " + model_path)
+func _load_vehicle_visual() -> void:
+	var packed := load("res://assets/models/player_sedan.glb") as PackedScene
+	if packed == null:
+		push_error("Player sedan model missing")
 		return
-	var packed := load(model_path) as PackedScene
-	if not packed:
-		push_warning("Sketchfab player car could not be imported")
-		return
-	var model := packed.instantiate() as Node3D
-	_remove_embedded_scene_objects(model)
-	model.name = "PlayerCarVisual"
-	model.scale = Vector3.ONE
-	model.rotation.y = PI
-	model.position = Vector3.ZERO
-	_make_model_mobile_fast(model)
-	add_child(model)
+	visual_root = packed.instantiate() as Node3D
+	visual_root.name = "PlayerCarVisual"
+	visual_root.rotation = Vector3.ZERO
+	visual_root.position = Vector3.ZERO
+	add_child(visual_root)
+	_remove_embedded_scene_objects(visual_root)
+	_prepare_visuals(visual_root)
+	_prepare_wheels()
 
-func _create_cameras() -> void:
-	# Cockpit-style camera, similar in function but not copied from any game assets.
-	var cockpit := Camera3D.new()
-	cockpit.name = "CockpitCamera"
-	cockpit.position = Vector3(0.34, 1.18, -0.58)
-	cockpit.rotation_degrees.x = -1.5
-	cockpit.fov = 70.0
-	cockpit.near = 0.08
-	cockpit.far = 145.0
-	add_child(cockpit)
-	cameras.append(cockpit)
+func _prepare_wheels() -> void:
+	var wheel_nodes := visual_root.find_children("*Wheel*", "MeshInstance3D", true, false)
+	for wheel_variant in wheel_nodes:
+		var wheel := wheel_variant as MeshInstance3D
+		if wheel == null:
+			continue
+		var old_parent := wheel.get_parent()
+		var old_transform := wheel.transform
+		var pivot := Node3D.new()
+		pivot.name = wheel.name + "_Pivot"
+		old_parent.add_child(pivot)
+		pivot.transform = old_transform
+		wheel.reparent(pivot)
+		wheel.transform = Transform3D.IDENTITY
+		wheel_pivots.append(pivot)
+		if wheel.name.contains("003") or wheel.name.contains("001"):
+			front_wheel_pivots.append(pivot)
 
-	var bonnet := Camera3D.new()
-	bonnet.name = "BonnetCamera"
-	bonnet.position = Vector3(0.0, 1.25, -1.45)
-	bonnet.rotation_degrees.x = -3.0
-	bonnet.fov = 68.0
-	bonnet.near = 0.08
-	bonnet.far = 145.0
-	add_child(bonnet)
-	cameras.append(bonnet)
+func _create_audio() -> void:
+	engine_idle = _make_audio_player("res://assets/audio/engine_idle.wav", true, -12.0)
+	engine_high = _make_audio_player("res://assets/audio/engine_high.wav", true, -50.0)
+	horn_player = _make_audio_player("res://assets/audio/horn.wav", false, -5.0)
+	brake_player = _make_audio_player("res://assets/audio/brake.ogg", false, -12.0)
+	if engine_idle.stream:
+		engine_idle.play()
+	if engine_high.stream:
+		engine_high.play()
 
-	var chase := Camera3D.new()
-	chase.name = "ChaseCamera"
-	chase.position = Vector3(0.0, 2.85, 6.4)
-	chase.rotation_degrees.x = -13.5
-	chase.fov = 65.0
-	chase.near = 0.12
-	chase.far = 145.0
-	add_child(chase)
-	cameras.append(chase)
-
-	camera_index = 0
-	_update_current_camera()
+func _make_audio_player(path: String, looping: bool, volume: float) -> AudioStreamPlayer:
+	var player := AudioStreamPlayer.new()
+	player.volume_db = volume
+	if ResourceLoader.exists(path):
+		player.stream = load(path)
+		if looping and player.stream is AudioStreamWAV:
+			(player.stream as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_FORWARD
+		elif looping and player.stream is AudioStreamOggVorbis:
+			(player.stream as AudioStreamOggVorbis).loop = true
+	add_child(player)
+	return player
 
 func _physics_process(delta: float) -> void:
-	var accelerating := bool(controls["accelerate"]) or Input.is_action_pressed("accelerate")
-	var braking := bool(controls["brake"]) or Input.is_action_pressed("brake")
-	var steering: float = 0.0
-	if bool(controls["left"]) or Input.is_action_pressed("steer_left"):
-		steering -= 1.0
-	if bool(controls["right"]) or Input.is_action_pressed("steer_right"):
-		steering += 1.0
-	steer_value = move_toward(steer_value, steering, 4.4 * delta)
-
-	if braking:
-		speed = move_toward(speed, 0.0, BRAKE_POWER * delta)
-	elif gear == "D" and accelerating:
-		speed = move_toward(speed, MAX_FORWARD, ACCELERATION * delta)
-	elif gear == "R" and accelerating:
-		speed = move_toward(speed, -MAX_REVERSE, REVERSE_ACCELERATION * delta)
+	var throttle := throttle_pressed or Input.is_action_pressed("accelerate")
+	var braking := brake_pressed or Input.is_action_pressed("brake")
+	var keyboard_steer := Input.get_axis("steer_left", "steer_right")
+	var steering := steer_input if absf(steer_input) > 0.01 else keyboard_steer
+	steer_visual = move_toward(steer_visual, steering, 4.8 * delta)
+	var normalized_speed := clampf(absf(speed) / MAX_FORWARD, 0.0, 1.0)
+	var drive_acceleration := lerpf(7.2, 1.35, normalized_speed)
+	var rolling_resistance := 0.42 + absf(speed) * 0.035 + speed * speed * 0.0035
+	if gear == "D" and throttle:
+		speed = move_toward(speed, MAX_FORWARD, drive_acceleration * delta)
+	elif gear == "R" and throttle:
+		speed = move_toward(speed, -MAX_REVERSE, 4.8 * delta)
+	elif braking:
+		var brake_force := 13.5 if absf(speed) > 2.0 else 8.0
+		speed = move_toward(speed, 0.0, brake_force * delta)
 	elif gear == "P":
-		speed = move_toward(speed, 0.0, BRAKE_POWER * delta)
+		speed = move_toward(speed, 0.0, 18.0 * delta)
 	else:
-		speed = move_toward(speed, 0.0, COAST_DECEL * delta)
-
-	var steering_strength := clampf(absf(speed) / 5.5, 0.12, 1.0)
-	rotation.y -= steer_value * STEER_SPEED * steering_strength * delta * (1.0 if speed >= 0.0 else -1.0)
+		speed = move_toward(speed, 0.0, rolling_resistance * delta)
+	if absf(speed) < 0.03:
+		speed = 0.0
+	var speed_abs := absf(speed)
+	if speed_abs > 0.38:
+		var speed_ratio := clampf(speed_abs / MAX_FORWARD, 0.0, 1.0)
+		var max_yaw_rate := lerpf(1.45, 0.52, speed_ratio)
+		var direction_sign := 1.0 if speed >= 0.0 else -1.0
+		rotation.y -= steer_visual * max_yaw_rate * direction_sign * delta
 	velocity.x = -transform.basis.z.x * speed
 	velocity.z = -transform.basis.z.z * speed
 	if not is_on_floor():
 		velocity.y -= GRAVITY * delta
 	else:
-		velocity.y = -0.15
+		velocity.y = -0.12
 	move_and_slide()
+	_update_wheels(delta)
+	_update_audio(braking)
+	if global_position.y < -3.0 or absf(global_position.x) > 145.0 or global_position.z < -720.0 or global_position.z > 85.0:
+		reset_vehicle()
 
-	if global_position.y < -3.0 or absf(global_position.x) > 125.0 or global_position.z < -305.0 or global_position.z > 45.0:
-		_reset_to_start()
+func _update_wheels(delta: float) -> void:
+	wheel_spin += speed * delta / WHEEL_RADIUS
+	for pivot in wheel_pivots:
+		if is_instance_valid(pivot) and pivot.get_child_count() > 0:
+			var wheel := pivot.get_child(0) as Node3D
+			wheel.rotation.x = wheel_spin
+	for pivot in front_wheel_pivots:
+		if is_instance_valid(pivot):
+			pivot.rotation.y = steer_visual * 0.42
+
+func _update_audio(braking: bool) -> void:
+	var ratio := clampf(absf(speed) / MAX_FORWARD, 0.0, 1.0)
+	if engine_idle.stream:
+		engine_idle.pitch_scale = 0.82 + ratio * 0.55
+		engine_idle.volume_db = lerpf(-9.0, -18.0, ratio)
+	if engine_high.stream:
+		engine_high.pitch_scale = 0.75 + ratio * 0.95
+		engine_high.volume_db = lerpf(-48.0, -7.0, clampf((ratio - 0.22) / 0.78, 0.0, 1.0))
+	if braking and not brake_was_pressed and absf(speed) > 5.0 and brake_player.stream:
+		brake_player.play()
+	brake_was_pressed = braking
 
 func set_control(action: String, pressed: bool) -> void:
-	if controls.has(action):
-		controls[action] = pressed
+	if action == "accelerate":
+		throttle_pressed = pressed
+	elif action == "brake":
+		brake_pressed = pressed
+
+func set_steer(value: float) -> void:
+	steer_input = clampf(value, -1.0, 1.0)
 
 func set_gear(new_gear: String) -> void:
-	if new_gear not in ["P", "R", "N", "D"]:
-		return
-	gear = new_gear
-	if gear == "P":
-		speed = move_toward(speed, 0.0, 4.0)
+	if new_gear in ["P", "R", "N", "D"]:
+		gear = new_gear
+
+func play_horn() -> void:
+	if horn_player.stream:
+		horn_player.stop()
+		horn_player.play()
 
 func get_speed_kmh() -> float:
 	return absf(speed) * 3.6
 
-func toggle_camera() -> void:
-	if cameras.is_empty():
-		return
-	camera_index = (camera_index + 1) % cameras.size()
-	_update_current_camera()
-
-func _update_current_camera() -> void:
-	for index in range(cameras.size()):
-		cameras[index].current = index == camera_index
-
-func _reset_to_start() -> void:
-	global_position = Vector3(5.5, 0.48, 12.0)
+func reset_vehicle() -> void:
+	global_position = Vector3(5.4, 0.52, 48.0)
 	rotation = Vector3.ZERO
 	velocity = Vector3.ZERO
 	speed = 0.0
 	gear = "D"
+	reset_physics_interpolation()
 
 func _remove_embedded_scene_objects(node: Node) -> void:
 	for child in node.get_children():
 		if child is Camera3D or child is Light3D or child is WorldEnvironment:
-			child.free()
+			child.queue_free()
 		else:
 			_remove_embedded_scene_objects(child)
 
-func _make_model_mobile_fast(node: Node) -> void:
+func _prepare_visuals(node: Node) -> void:
 	if node is GeometryInstance3D:
 		var geometry := node as GeometryInstance3D
 		geometry.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		geometry.visibility_range_end = 145.0
+		geometry.layers = 2
 	if node is MeshInstance3D:
 		var mesh_instance := node as MeshInstance3D
 		if mesh_instance.mesh:
 			for surface_index in range(mesh_instance.mesh.get_surface_count()):
 				var source_material := mesh_instance.mesh.surface_get_material(surface_index)
 				if source_material is StandardMaterial3D:
-					var fast_material := source_material.duplicate() as StandardMaterial3D
-					fast_material.metallic = minf(fast_material.metallic, 0.15)
-					fast_material.roughness = maxf(fast_material.roughness, 0.62)
-					fast_material.clearcoat_enabled = false
-					mesh_instance.set_surface_override_material(surface_index, fast_material)
+					var material := source_material.duplicate() as StandardMaterial3D
+					material.metallic = minf(material.metallic, 0.18)
+					material.roughness = maxf(material.roughness, 0.55)
+					material.clearcoat_enabled = false
+					mesh_instance.set_surface_override_material(surface_index, material)
 	for child in node.get_children():
-		_make_model_mobile_fast(child)
+		_prepare_visuals(child)
