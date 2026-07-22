@@ -41,6 +41,10 @@ jobs:
           test -f scripts/car.gd
           test -f export_presets.cfg
           sed -i '/^gradle_build\/min_sdk=/d; /^gradle_build\/target_sdk=/d' export_presets.cfg
+          if ! grep -q '^textures/vram_compression/import_etc2_astc=true' project.godot; then
+            sed -i '/^\[rendering\]/a textures/vram_compression/import_etc2_astc=true' project.godot
+          fi
+          grep -q '^textures/vram_compression/import_etc2_astc=true' project.godot
 
       - name: Install official Android SDK 35
         id: android_sdk
