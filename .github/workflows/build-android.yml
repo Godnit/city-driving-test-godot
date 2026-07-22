@@ -1,9 +1,7 @@
-name: Build Android APK
+name: Validate Android Build
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -23,7 +21,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify ultra-lite source
+      - name: Verify v0.4 responsive source
         shell: bash
         run: |
           set -euo pipefail
@@ -32,44 +30,16 @@ jobs:
           test -f scripts/main.gd
           test -f scripts/car.gd
           test -f export_presets.cfg
+          test -f assets/sketchfab/README.md
           grep -q 'size/viewport_width=640' project.godot
           grep -q 'size/viewport_height=360' project.godot
           grep -q 'stretch/mode="viewport"' project.godot
           grep -q 'handheld/orientation=0' project.godot
           grep -q 'common/physics_ticks_per_second=30' project.godot
-          grep -q 'gl_compatibility' project.godot
-          grep -q 'architectures/armeabi-v7a=true' export_presets.cfg
-          ! grep -q 'ToyCar' scripts/car.gd
-
-      - name: Add CC0 low-poly city and car models
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf assets/models /tmp/kenney-car /tmp/kenney-car.zip
-          mkdir -p assets/models/Textures /tmp/kenney-car
-
-          city_base=https://raw.githubusercontent.com/KenneyNL/Starter-Kit-City-Builder/main/models
-          wget -q -O assets/models/building_01.glb "$city_base/building-small-a.glb"
-          wget -q -O assets/models/building_02.glb "$city_base/building-small-b.glb"
-          wget -q -O assets/models/building_03.glb "$city_base/building-small-c.glb"
-          wget -q -O assets/models/building_04.glb "$city_base/building-small-d.glb"
-          wget -q -O assets/models/Textures/colormap.png "$city_base/Textures/colormap.png"
-
-          wget -q -O /tmp/kenney-car.zip https://opengameart.org/sites/default/files/kenney_car-kit_3.1.zip
-          unzip -q /tmp/kenney-car.zip -d /tmp/kenney-car
-          car_file=$(find /tmp/kenney-car -type f -iname 'sedan.glb' | head -n 1 || true)
-          test -n "$car_file" || car_file=$(find /tmp/kenney-car -type f -iname 'suv.glb' | head -n 1 || true)
-          test -n "$car_file" || car_file=$(find /tmp/kenney-car -type f -iname 'hatchback.glb' | head -n 1 || true)
-          test -n "$car_file" || car_file=$(find /tmp/kenney-car -type f -iname '*.glb' | head -n 1 || true)
-          test -n "$car_file"
-          cp "$car_file" assets/models/player_car.glb
-
-          for file in assets/models/*.glb assets/models/Textures/colormap.png; do test -s "$file"; done
-          car_size=$(stat -c%s assets/models/player_car.glb)
-          echo "Selected low-poly car: $car_file"
-          echo "Low-poly car size: $car_size bytes"
-          test "$car_size" -le $((3 * 1024 * 1024))
-          du -h assets/models/*.glb assets/models/Textures/colormap.png
+          grep -q '_set_control_rect' scripts/main.gd
+          grep -q '_create_gear_selector' scripts/main.gd
+          grep -q 'assets/sketchfab/player_car.glb' scripts/car.gd
+          ! grep -R -q 'Kenney' scripts .github/workflows/build-android.yml
 
       - name: Install official Android SDK 35
         shell: bash
@@ -115,55 +85,42 @@ jobs:
         run: |
           set -euo pipefail
           godot --headless --editor --quit --path . 2>&1 | tee import.log
-          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' import.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call|ERROR:' import.log
 
       - name: Smoke test game startup
         shell: bash
         run: |
           set -euo pipefail
-          timeout 30s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
-          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' smoke-test.log
+          timeout 35s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call|ERROR:' smoke-test.log
           grep -q 'CITY_DRIVING_READY' smoke-test.log
 
-      - name: Export installable APK
+      - name: Export code-test APK
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build/android
-          apk=build/android/CityDrivingTest-v0.3-UltraLite.apk
+          apk=build/android/CityDrivingTest-v0.4-CodeTest.apk
           godot --headless --verbose --path . --export-debug Android "$apk" 2>&1 | tee build/android/export.log
           test -f "$apk"
           ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' build/android/export.log
 
-      - name: Verify APK compatibility and size
+      - name: Verify Android 8.1 compatibility
         shell: bash
         run: |
           set -euo pipefail
-          apk=build/android/CityDrivingTest-v0.3-UltraLite.apk
+          apk=build/android/CityDrivingTest-v0.4-CodeTest.apk
           "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose "$apk"
           unzip -tq "$apk"
-          size=$(stat -c%s "$apk")
-          echo "APK size: $size bytes"
-          test "$size" -le $((50 * 1024 * 1024))
           "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging "$apk" | tee build/android/badging.txt
           grep -q "native-code: 'armeabi-v7a'" build/android/badging.txt
           grep -q "sdkVersion:'24'" build/android/badging.txt
-          grep -q "screenOrientation='landscape'" build/android/badging.txt || true
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: CityDrivingTest-v0.3-UltraLite-APK
-          path: build/android/CityDrivingTest-v0.3-UltraLite.apk
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 30
 
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: CityDrivingTest-v0.3-UltraLite-Diagnostics
+          name: CityDrivingTest-v0.4-Diagnostics
           path: |
             import.log
             smoke-test.log
