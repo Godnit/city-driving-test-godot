@@ -18,6 +18,11 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.6.3
+    env:
+      GODOT_VERSION: 4.6.3
+      GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /root/debug.keystore
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
 
     steps:
       - name: Checkout repository
@@ -37,13 +42,56 @@ jobs:
           test -f scripts/main.gd
           test -f scripts/car.gd
 
+      - name: Configure Godot Android environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          template_source="$(find /root/.local/share/godot -type f -name android_debug.apk -printf '%h\n' | head -n 1)"
+          test -n "$template_source"
+          template_target="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$template_target"
+          cp -a "$template_source"/. "$template_target"/
+          test -f "$template_target/android_debug.apk"
+          test -f "$template_target/android_release.apk"
+
+          java_home="${JAVA_HOME:-}"
+          if [ -z "$java_home" ]; then
+            java_home="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
+          fi
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "$android_sdk" ]; then
+            android_sdk="$(dirname "$(dirname "$(readlink -f "$(command -v adb)")")")"
+          fi
+          test -x "$java_home/bin/java"
+          test -x "$android_sdk/platform-tools/adb"
+
+          mkdir -p "$HOME/.config/godot"
+          root_settings="$(find /root/.config/godot -maxdepth 1 -type f -name 'editor_settings*.tres' | head -n 1 || true)"
+          if [ -n "$root_settings" ]; then
+            cp "$root_settings" "$HOME/.config/godot/editor_settings-4.6.tres"
+          else
+            printf '[gd_resource format=3]\n\n[resource]\n' > "$HOME/.config/godot/editor_settings-4.6.tres"
+          fi
+          {
+            printf '\nexport/android/java_sdk_path = "%s"\n' "$java_home"
+            printf 'export/android/android_sdk_path = "%s"\n' "$android_sdk"
+            printf 'export/android/debug_keystore = "/root/debug.keystore"\n'
+            printf 'export/android/debug_keystore_user = "androiddebugkey"\n'
+            printf 'export/android/debug_keystore_pass = "android"\n'
+          } >> "$HOME/.config/godot/editor_settings-4.6.tres"
+
+          echo "Java SDK: $java_home"
+          echo "Android SDK: $android_sdk"
+          echo "Templates: $template_target"
+
       - name: Verify build environment
         shell: bash
         run: |
           set -euo pipefail
           godot --version
-          echo "ANDROID_HOME=${ANDROID_HOME:-}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
+          java -version
+          test -f "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_debug.apk"
 
       - name: Import project and validate scripts
         shell: bash
