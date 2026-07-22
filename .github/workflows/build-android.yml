@@ -39,7 +39,7 @@ jobs:
           grep -q '_set_control_rect' scripts/main.gd
           grep -q '_create_gear_selector' scripts/main.gd
           grep -q 'assets/sketchfab/player_car.glb' scripts/car.gd
-          ! grep -R -q 'Kenney' scripts .github/workflows/build-android.yml
+          ! grep -R -q 'assets/models/player_car.glb' scripts
 
       - name: Install official Android SDK 35
         shell: bash
