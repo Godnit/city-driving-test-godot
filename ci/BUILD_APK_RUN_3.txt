@@ -1,0 +1,1 @@
+Trigger third APK build after configuring Godot Android SDK paths.
