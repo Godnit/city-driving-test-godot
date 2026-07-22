@@ -40,12 +40,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/kenney-city assets/models
-          mkdir -p assets/models
-          git clone --depth 1 https://github.com/KenneyNL/Starter-Kit-City-Builder.git /tmp/kenney-city
-          test -f /tmp/kenney-city/models/road-straight.glb
-          cp /tmp/kenney-city/models/road-straight.glb assets/models/road_straight.glb
-          mapfile -t building_files < <(find /tmp/kenney-city/models -maxdepth 1 -type f -name 'building-*.glb' | sort)
+          rm -rf /tmp/kenney-city /tmp/kenney-city.zip assets/models
+          mkdir -p /tmp/kenney-city assets/models
+          curl -fL --retry 4 -o /tmp/kenney-city.zip https://github.com/KenneyNL/Starter-Kit-City-Builder/archive/refs/heads/main.zip
+          unzip -q /tmp/kenney-city.zip -d /tmp/kenney-city
+          city_root=$(find /tmp/kenney-city -maxdepth 1 -type d -name 'Starter-Kit-City-Builder-*' | head -n 1)
+          test -n "$city_root"
+          test -f "$city_root/models/road-straight.glb"
+          cp "$city_root/models/road-straight.glb" assets/models/road_straight.glb
+          mapfile -t building_files < <(find "$city_root/models" -maxdepth 1 -type f -name 'building-*.glb' | sort)
           test ${#building_files[@]} -ge 4
           for i in $(seq 1 8); do
             printf -v target 'assets/models/building_%02d.glb' "$i"
