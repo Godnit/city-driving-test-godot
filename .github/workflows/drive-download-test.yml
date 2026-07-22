@@ -1,0 +1,18 @@
+name: Drive Asset Test
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test anonymous Drive downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/assets
+          wget -q --content-disposition -O /tmp/assets/car.glb 'https://drive.usercontent.google.com/download?id=1jKEmUCMDNFGSYd2nWn8r4YmNOsvR7yl1&export=download&confirm=t'
+          file /tmp/assets/car.glb
+          stat -c '%s' /tmp/assets/car.glb
+          test "$(stat -c '%s' /tmp/assets/car.glb)" -gt 10000000
