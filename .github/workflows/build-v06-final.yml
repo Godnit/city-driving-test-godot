@@ -21,7 +21,7 @@ jobs:
         with:
           ref: v0.6-driving-rebuild
 
-      - name: Confirm game source
+      - name: Confirm and patch game source
         shell: bash
         run: |
           set -euo pipefail
@@ -33,6 +33,10 @@ jobs:
           test -s scripts/traffic_car.gd
           test -s scripts/driving_controls.gd
           test -s export_presets.cfg
+          sed -i 's/var z_position := street_z + side_z \* 11\.0/var z_position: float = street_z + side_z * 11.0/' scripts/main.gd
+          sed -i 's/var x_value := side \* (17\.0 + float(index) \* 9\.0)/var x_value: float = side * (17.0 + float(index) * 9.0)/' scripts/main.gd
+          grep -q 'var z_position: float' scripts/main.gd
+          grep -q 'var x_value: float = side' scripts/main.gd
           echo "Source commit: $(git rev-parse HEAD)"
 
       - name: Install realistic MIT sedan
