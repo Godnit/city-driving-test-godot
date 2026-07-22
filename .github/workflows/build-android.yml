@@ -37,25 +37,44 @@ jobs:
           grep -q 'architectures/armeabi-v7a=true' export_presets.cfg
 
       - name: Add CC0 mobile city and car models
+        id: assets
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          rm -rf assets/models
-          mkdir -p assets/models
-          base=https://raw.githubusercontent.com/KenneyNL/Starter-Kit-City-Builder/main/models
-          curl -fL --retry 4 -o assets/models/road_straight.glb "$base/road-straight.glb"
-          curl -fL --retry 4 -o assets/models/building_01.glb "$base/building-small-a.glb"
-          curl -fL --retry 4 -o assets/models/building_02.glb "$base/building-small-b.glb"
-          curl -fL --retry 4 -o assets/models/building_03.glb "$base/building-small-c.glb"
-          curl -fL --retry 4 -o assets/models/building_04.glb "$base/building-small-d.glb"
-          curl -fL --retry 4 -o assets/models/building_05.glb "$base/building-garage.glb"
-          cp assets/models/building_01.glb assets/models/building_06.glb
-          cp assets/models/building_03.glb assets/models/building_07.glb
-          cp assets/models/building_05.glb assets/models/building_08.glb
-          curl -fL --retry 4 -o assets/models/player_car.glb https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ToyCar/glTF-Binary/ToyCar.glb
-          for file in assets/models/*.glb; do test -s "$file"; done
-          sed -i 's#res://assets/models/traffic_car_0[123]\.glb#res://assets/models/player_car.glb#g' scripts/main.gd
-          du -h assets/models/*
+          set -o pipefail
+          {
+            set -eux
+            rm -rf assets/models
+            mkdir -p assets/models
+            base=https://raw.githubusercontent.com/KenneyNL/Starter-Kit-City-Builder/main/models
+            curl -fL --retry 4 -o assets/models/road_straight.glb "$base/road-straight.glb"
+            curl -fL --retry 4 -o assets/models/building_01.glb "$base/building-small-a.glb"
+            curl -fL --retry 4 -o assets/models/building_02.glb "$base/building-small-b.glb"
+            curl -fL --retry 4 -o assets/models/building_03.glb "$base/building-small-c.glb"
+            curl -fL --retry 4 -o assets/models/building_04.glb "$base/building-small-d.glb"
+            curl -fL --retry 4 -o assets/models/building_05.glb "$base/building-garage.glb"
+            cp assets/models/building_01.glb assets/models/building_06.glb
+            cp assets/models/building_03.glb assets/models/building_07.glb
+            cp assets/models/building_05.glb assets/models/building_08.glb
+            curl -fL --retry 4 -o assets/models/player_car.glb https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ToyCar/glTF-Binary/ToyCar.glb
+            for file in assets/models/*.glb; do test -s "$file"; done
+            sed -i 's#res://assets/models/traffic_car_0[123]\.glb#res://assets/models/player_car.glb#g' scripts/main.gd
+            du -h assets/models/*
+          } 2>&1 | tee asset-download.log
+
+      - name: Upload model diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CityDrivingTest-v0.2-AssetDiagnostics
+          path: asset-download.log
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Stop when models failed
+        if: steps.assets.outcome != 'success'
+        shell: bash
+        run: exit 1
 
       - name: Install official Android SDK 35
         shell: bash
