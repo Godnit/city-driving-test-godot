@@ -7,41 +7,109 @@ on:
 permissions:
   actions: write
   issues: write
-  contents: read
+  contents: write
 
 jobs:
-  dispatch:
-    if: ${{ github.event.issue.title == 'run-v0.6-release' || github.event.issue.title == 'run-v0.6-branch' }}
+  build-and-publish:
+    if: ${{ github.event.issue.title == 'build-and-publish-v0.6' }}
     runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      BRANCH: v0.6-driving-rebuild
+      WORKFLOW: build-android.yml
+      ARTIFACT: CityDriveMissions-v0.6-Android8.1-APK
+      APK: CityDriveMissions-v0.6-Android8.1.apk
     steps:
-      - name: Dispatch verified v0.6 branch build
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
+      - name: Dispatch Linux Android build
+        id: dispatch
+        shell: bash
         run: |
           set -euo pipefail
-          ref='main'
-          if [ "$ISSUE_TITLE" = 'run-v0.6-branch' ]; then
-            ref='v0.6-driving-rebuild'
-          fi
-          curl --fail-with-body -L \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/$REPO/actions/workflows/build-android.yml/dispatches" \
-            -d "{\"ref\":\"$ref\"}"
+          started=$(date -u +%s)
+          echo "started=$started" >> "$GITHUB_OUTPUT"
+          gh api --method POST "repos/$REPO/actions/workflows/$WORKFLOW/dispatches" -f ref="$BRANCH"
 
-      - name: Close trigger issue
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_URL: ${{ github.event.issue.url }}
+      - name: Find dispatched run
+        id: find
+        shell: bash
         run: |
-          curl --fail-with-body -L \
-            -X PATCH \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "$ISSUE_URL" \
-            -d '{"state":"closed"}'
+          set -euo pipefail
+          started='${{ steps.dispatch.outputs.started }}'
+          run_id=''
+          for attempt in $(seq 1 40); do
+            run_id=$(gh api --method GET "repos/$REPO/actions/workflows/$WORKFLOW/runs" \
+              -f branch="$BRANCH" -f event=workflow_dispatch -f per_page=20 \
+              --jq ".workflow_runs[] | select((.created_at | fromdateiso8601) >= $started) | .id" | head -n 1 || true)
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            sleep 5
+          done
+          test -n "$run_id"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "run_url=https://github.com/$REPO/actions/runs/$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for build result
+        id: wait
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id='${{ steps.find.outputs.run_id }}'
+          conclusion=''
+          for attempt in $(seq 1 120); do
+            status=$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.status')
+            conclusion=$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.conclusion // ""')
+            echo "status=$status conclusion=$conclusion"
+            if [ "$status" = 'completed' ]; then
+              break
+            fi
+            sleep 10
+          done
+          test "$conclusion" = 'success'
+
+      - name: Download verified APK artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id='${{ steps.find.outputs.run_id }}'
+          artifact_id=$(gh api "repos/$REPO/actions/runs/$run_id/artifacts" \
+            --jq ".artifacts[] | select(.name == \"$ARTIFACT\") | .id" | head -n 1)
+          test -n "$artifact_id"
+          mkdir -p release
+          gh api "repos/$REPO/actions/artifacts/$artifact_id/zip" > /tmp/apk-artifact.zip
+          unzip -q /tmp/apk-artifact.zip -d release
+          test -s "release/$APK"
+          sha256sum "release/$APK" | tee release/SHA256SUMS.txt
+          size=$(stat -c%s "release/$APK")
+          test "$size" -le $((100 * 1024 * 1024))
+
+      - name: Publish direct APK release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v0.6.0 --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload v0.6.0 "release/$APK" "release/SHA256SUMS.txt" --clobber --repo "$REPO"
+          else
+            gh release create v0.6.0 "release/$APK" "release/SHA256SUMS.txt" \
+              --repo "$REPO" \
+              --title 'City Drive Missions v0.6' \
+              --notes 'Verified Linux/Godot build for Android 8.1, ARMv7, API 24+, under 100 MB.'
+          fi
+
+      - name: Post direct download and close issue
+        shell: bash
+        run: |
+          set -euo pipefail
+          download="https://github.com/$REPO/releases/download/v0.6.0/$APK"
+          run_url='${{ steps.find.outputs.run_url }}'
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "BUILD_SUCCESS\n\nDirect APK: $download\n\nVerified run: $run_url"
+          gh issue close "$ISSUE_NUMBER" --repo "$REPO" --reason completed
+
+      - name: Report failure
+        if: failure()
+        shell: bash
+        run: |
+          run_url='${{ steps.find.outputs.run_url }}'
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "BUILD_FAILED\n\nRun: ${run_url:-not-found}"
