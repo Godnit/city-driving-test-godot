@@ -40,23 +40,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/kenney-city /tmp/kenney-city.zip assets/models
-          mkdir -p /tmp/kenney-city assets/models
-          curl -fL --retry 4 -o /tmp/kenney-city.zip https://github.com/KenneyNL/Starter-Kit-City-Builder/archive/refs/heads/main.zip
-          unzip -q /tmp/kenney-city.zip -d /tmp/kenney-city
-          city_root=$(find /tmp/kenney-city -maxdepth 1 -type d -name 'Starter-Kit-City-Builder-*' | head -n 1)
-          test -n "$city_root"
-          test -f "$city_root/models/road-straight.glb"
-          cp "$city_root/models/road-straight.glb" assets/models/road_straight.glb
-          mapfile -t building_files < <(find "$city_root/models" -maxdepth 1 -type f -name 'building-*.glb' | sort)
-          test ${#building_files[@]} -ge 4
-          for i in $(seq 1 8); do
-            printf -v target 'assets/models/building_%02d.glb' "$i"
-            source_index=$(( (i - 1) % ${#building_files[@]} ))
-            cp "${building_files[$source_index]}" "$target"
-          done
+          rm -rf assets/models
+          mkdir -p assets/models
+          base=https://raw.githubusercontent.com/KenneyNL/Starter-Kit-City-Builder/main/models
+          curl -fL --retry 4 -o assets/models/road_straight.glb "$base/road-straight.glb"
+          curl -fL --retry 4 -o assets/models/building_01.glb "$base/building-small-a.glb"
+          curl -fL --retry 4 -o assets/models/building_02.glb "$base/building-small-b.glb"
+          curl -fL --retry 4 -o assets/models/building_03.glb "$base/building-small-c.glb"
+          curl -fL --retry 4 -o assets/models/building_04.glb "$base/building-small-d.glb"
+          curl -fL --retry 4 -o assets/models/building_05.glb "$base/building-garage.glb"
+          cp assets/models/building_01.glb assets/models/building_06.glb
+          cp assets/models/building_03.glb assets/models/building_07.glb
+          cp assets/models/building_05.glb assets/models/building_08.glb
           curl -fL --retry 4 -o assets/models/player_car.glb https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/ToyCar/glTF-Binary/ToyCar.glb
-          test -s assets/models/player_car.glb
+          for file in assets/models/*.glb; do test -s "$file"; done
           sed -i 's#res://assets/models/traffic_car_0[123]\.glb#res://assets/models/player_car.glb#g' scripts/main.gd
           du -h assets/models/*
 
