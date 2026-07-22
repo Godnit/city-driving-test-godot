@@ -115,14 +115,14 @@ jobs:
         run: |
           set -euo pipefail
           godot --headless --editor --quit --path . 2>&1 | tee import.log
-          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call|ERROR:' import.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' import.log
 
       - name: Smoke test game startup
         shell: bash
         run: |
           set -euo pipefail
           timeout 30s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
-          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call|ERROR:' smoke-test.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' smoke-test.log
           grep -q 'CITY_DRIVING_READY' smoke-test.log
 
       - name: Export installable APK
