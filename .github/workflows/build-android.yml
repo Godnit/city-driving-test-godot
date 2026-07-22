@@ -46,28 +46,55 @@ jobs:
           sed -i '/^gradle_build\/min_sdk=/d; /^gradle_build\/target_sdk=/d' export_presets.cfg
 
       - name: Install official Android SDK 35
+        id: android_sdk
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          rm -rf "$ANDROID_SDK_ROOT" /tmp/android-command-tools /tmp/android-command-tools.zip
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest" /tmp/android-command-tools
-          curl -fL --retry 3 --retry-delay 2 \
-            -o /tmp/android-command-tools.zip \
-            https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip
-          unzip -q /tmp/android-command-tools.zip -d /tmp/android-command-tools
-          cp -a /tmp/android-command-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
-          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          test -x "$sdkmanager"
-          yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
-          "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" \
-            "platform-tools" \
-            "build-tools;35.0.1" \
-            "platforms;android-35"
-          test -x "$ANDROID_SDK_ROOT/platform-tools/adb"
-          test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner"
-          test -d "$ANDROID_SDK_ROOT/platforms/android-35"
+          set -o pipefail
+          mkdir -p build/setup
+          {
+            set -eux
+            rm -rf "$ANDROID_SDK_ROOT" /tmp/android-command-tools /tmp/android-command-tools.zip
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest" /tmp/android-command-tools
+
+            tools_url=https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+            if command -v curl >/dev/null 2>&1; then
+              curl -fL --retry 3 --retry-delay 2 -o /tmp/android-command-tools.zip "$tools_url"
+            elif command -v wget >/dev/null 2>&1; then
+              wget -O /tmp/android-command-tools.zip "$tools_url"
+            else
+              python3 - "$tools_url" /tmp/android-command-tools.zip <<'PY'
+import sys, urllib.request
+urllib.request.urlretrieve(sys.argv[1], sys.argv[2])
+PY
+            fi
+
+            unzip -q /tmp/android-command-tools.zip -d /tmp/android-command-tools
+            cp -a /tmp/android-command-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+            sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+            test -x "$sdkmanager"
+            java -version
+            yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
+            "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" \
+              "platform-tools" \
+              "build-tools;35.0.1" \
+              "platforms;android-35"
+            test -x "$ANDROID_SDK_ROOT/platform-tools/adb"
+            test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner"
+            test -d "$ANDROID_SDK_ROOT/platforms/android-35"
+          } 2>&1 | tee build/setup/android-sdk-install.log
+
+      - name: Upload Android SDK diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CityDrivingTest-AndroidSDK-Diagnostics
+          path: build/setup/android-sdk-install.log
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Configure Godot Android environment
+        if: steps.android_sdk.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -105,6 +132,7 @@ jobs:
           echo "Templates: $template_target"
 
       - name: Verify build environment
+        if: steps.android_sdk.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -114,12 +142,14 @@ jobs:
           test -f "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_debug.apk"
 
       - name: Import project and validate scripts
+        if: steps.android_sdk.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
           godot --headless --editor --quit --path .
 
       - name: Export installable debug APK
+        if: steps.android_sdk.outcome == 'success'
         id: export_apk
         continue-on-error: true
         shell: bash
@@ -129,7 +159,7 @@ jobs:
           godot --headless --verbose --path . --export-debug "Android" build/android/CityDrivingTest-debug.apk 2>&1 | tee build/android/export.log
 
       - name: Upload export diagnostics
-        if: always()
+        if: always() && steps.android_sdk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: CityDrivingTest-BuildDiagnostics
@@ -165,6 +195,6 @@ jobs:
           retention-days: 30
 
       - name: Fail after diagnostics are saved
-        if: steps.export_apk.outcome != 'success'
+        if: steps.android_sdk.outcome != 'success' || steps.export_apk.outcome != 'success'
         shell: bash
         run: exit 1
