@@ -20,6 +20,7 @@ const MAX_FORWARD: float = 25.0
 const MAX_REVERSE: float = 6.5
 const WHEEL_RADIUS: float = 0.34
 const GRAVITY: float = 22.0
+const TARGET_MODEL_LENGTH: float = 4.25
 
 func _ready() -> void:
 	collision_layer = 1
@@ -42,10 +43,80 @@ func _load_vehicle_visual() -> void:
 	visual_root.name = "PlayerCarVisual"
 	visual_root.rotation = Vector3.ZERO
 	visual_root.position = Vector3.ZERO
+	visual_root.scale = Vector3.ONE
 	add_child(visual_root)
 	_remove_embedded_scene_objects(visual_root)
 	_prepare_visuals(visual_root)
+	_normalize_vehicle_visual()
 	_prepare_wheels()
+
+func _normalize_vehicle_visual() -> void:
+	var source_bounds := _calculate_mesh_bounds(visual_root)
+	if source_bounds.size.length_squared() < 0.0001:
+		push_error("Player sedan has no usable mesh bounds")
+		return
+	var model_yaw: float = 0.0
+	if source_bounds.size.x > source_bounds.size.z * 1.10:
+		model_yaw = PI * 0.5
+	var longest_horizontal := maxf(source_bounds.size.x, source_bounds.size.z)
+	var scale_factor := clampf(TARGET_MODEL_LENGTH / longest_horizontal, 0.001, 100.0)
+	visual_root.rotation = Vector3(0.0, model_yaw, 0.0)
+	visual_root.scale = Vector3.ONE * scale_factor
+	var anchor_local := Vector3(
+		source_bounds.position.x + source_bounds.size.x * 0.5,
+		source_bounds.position.y,
+		source_bounds.position.z + source_bounds.size.z * 0.5
+	)
+	visual_root.position = -(visual_root.basis * anchor_local) + Vector3(0.0, 0.03, 0.0)
+	var normalized_bounds := _calculate_mesh_bounds(self)
+	print("VEHICLE_VISUAL_NORMALIZED source=%s scale=%.6f yaw=%.2f final=%s" % [
+		str(source_bounds.size),
+		scale_factor,
+		rad_to_deg(model_yaw),
+		str(normalized_bounds.size)
+	])
+	if normalized_bounds.size.y > 3.0 or maxf(normalized_bounds.size.x, normalized_bounds.size.z) > 6.0:
+		push_error("Normalized sedan bounds are still too large: %s" % str(normalized_bounds.size))
+
+func _calculate_mesh_bounds(relative_to: Node3D) -> AABB:
+	var result := AABB()
+	var has_bounds := false
+	var root_inverse := relative_to.global_transform.affine_inverse()
+	var mesh_nodes := visual_root.find_children("*", "MeshInstance3D", true, false)
+	for node_variant in mesh_nodes:
+		var mesh_instance := node_variant as MeshInstance3D
+		if mesh_instance == null or mesh_instance.mesh == null:
+			continue
+		var relative_transform := root_inverse * mesh_instance.global_transform
+		var transformed_bounds := _transform_aabb(mesh_instance.get_aabb(), relative_transform)
+		if not has_bounds:
+			result = transformed_bounds
+			has_bounds = true
+		else:
+			result = result.merge(transformed_bounds)
+	return result
+
+func _transform_aabb(source: AABB, transform_value: Transform3D) -> AABB:
+	var origin := source.position
+	var size_value := source.size
+	var corners: Array[Vector3] = [
+		origin,
+		origin + Vector3(size_value.x, 0.0, 0.0),
+		origin + Vector3(0.0, size_value.y, 0.0),
+		origin + Vector3(0.0, 0.0, size_value.z),
+		origin + Vector3(size_value.x, size_value.y, 0.0),
+		origin + Vector3(size_value.x, 0.0, size_value.z),
+		origin + Vector3(0.0, size_value.y, size_value.z),
+		origin + size_value
+	]
+	var first_point := transform_value * corners[0]
+	var min_point := first_point
+	var max_point := first_point
+	for index in range(1, corners.size()):
+		var point := transform_value * corners[index]
+		min_point = Vector3(minf(min_point.x, point.x), minf(min_point.y, point.y), minf(min_point.z, point.z))
+		max_point = Vector3(maxf(max_point.x, point.x), maxf(max_point.y, point.y), maxf(max_point.z, point.z))
+	return AABB(min_point, max_point - min_point)
 
 func _prepare_wheels() -> void:
 	var wheel_nodes := visual_root.find_children("*Wheel*", "MeshInstance3D", true, false)
