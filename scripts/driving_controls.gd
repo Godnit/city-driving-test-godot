@@ -146,8 +146,9 @@ func _gear_rects() -> Dictionary:
 	var result: Dictionary = {}
 	var top := size.y * 0.22
 	var height := size.y * 0.085
+	var gear_labels: Array[String] = ["P", "R", "N", "D"]
 	for index in range(4):
-		var label := ["P", "R", "N", "D"][index]
+		var label: String = gear_labels[index]
 		result[label] = Rect2(size.x * 0.90, top + float(index) * (height + 4.0), size.x * 0.065, height)
 	return result
 
@@ -159,8 +160,9 @@ func _draw() -> void:
 	draw_circle(center, radius, rim_color)
 	draw_arc(center, radius, 0.0, TAU, 64, edge_color, 7.0, true)
 	var angle := steer_value * 0.92
-	for base_angle in [-PI * 0.5, PI / 6.0, PI * 5.0 / 6.0]:
-		var spoke_angle := base_angle + angle
+	var base_angles: Array[float] = [-PI * 0.5, PI / 6.0, PI * 5.0 / 6.0]
+	for base_angle in base_angles:
+		var spoke_angle: float = base_angle + angle
 		var inner := center + Vector2(cos(spoke_angle), sin(spoke_angle)) * radius * 0.25
 		var outer := center + Vector2(cos(spoke_angle), sin(spoke_angle)) * radius * 0.77
 		draw_line(inner, outer, edge_color, 8.0, true)
