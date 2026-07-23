@@ -1,0 +1,115 @@
+name: Trigger v0.6.1 Camera Fix Release
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  actions: write
+  issues: write
+  contents: write
+
+jobs:
+  build-and-publish:
+    if: ${{ github.event.issue.title == 'build-and-publish-v0.6.1-camera-fix' }}
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      BRANCH: main
+      WORKFLOW: build-v061-camera-fix.yml
+      ARTIFACT: CityDriveMissions-v0.6.1-CameraFix-Android8.1-APK
+      APK: CityDriveMissions-v0.6.1-CameraFix-Android8.1.apk
+      TAG: v0.6.1
+    steps:
+      - name: Dispatch Linux Android build
+        id: dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          started=$(date -u +%s)
+          echo "started=$started" >> "$GITHUB_OUTPUT"
+          gh api --method POST "repos/$REPO/actions/workflows/$WORKFLOW/dispatches" -f ref="$BRANCH"
+
+      - name: Find dispatched run
+        id: find
+        shell: bash
+        run: |
+          set -euo pipefail
+          started='${{ steps.dispatch.outputs.started }}'
+          run_id=''
+          for attempt in $(seq 1 40); do
+            run_id=$(gh api --method GET "repos/$REPO/actions/workflows/$WORKFLOW/runs" \
+              -f branch="$BRANCH" -f event=workflow_dispatch -f per_page=20 \
+              --jq ".workflow_runs[] | select((.created_at | fromdateiso8601) >= $started) | .id" | head -n 1 || true)
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            sleep 5
+          done
+          test -n "$run_id"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "run_url=https://github.com/$REPO/actions/runs/$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for successful build
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id='${{ steps.find.outputs.run_id }}'
+          conclusion=''
+          for attempt in $(seq 1 120); do
+            status=$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.status')
+            conclusion=$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.conclusion // ""')
+            echo "status=$status conclusion=$conclusion"
+            if [ "$status" = 'completed' ]; then
+              break
+            fi
+            sleep 10
+          done
+          test "$conclusion" = 'success'
+
+      - name: Download verified APK artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id='${{ steps.find.outputs.run_id }}'
+          artifact_id=$(gh api "repos/$REPO/actions/runs/$run_id/artifacts" \
+            --jq ".artifacts[] | select(.name == \"$ARTIFACT\") | .id" | head -n 1)
+          test -n "$artifact_id"
+          mkdir -p release
+          gh api "repos/$REPO/actions/artifacts/$artifact_id/zip" > /tmp/apk-artifact.zip
+          unzip -q /tmp/apk-artifact.zip -d release
+          test -s "release/$APK"
+          size=$(stat -c%s "release/$APK")
+          test "$size" -le $((100 * 1024 * 1024))
+          sha256sum "release/$APK" | tee release/SHA256SUMS.txt
+
+      - name: Publish direct APK release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" "release/$APK" "release/SHA256SUMS.txt" --clobber --repo "$REPO"
+          else
+            gh release create "$TAG" "release/$APK" "release/SHA256SUMS.txt" \
+              --repo "$REPO" \
+              --title 'City Drive Missions v0.6.1 — Camera Fix' \
+              --notes 'Fixes the camera appearing inside the ground or oversized sedan by normalizing the imported vehicle scale/origin and enforcing a safe chase-camera height. Verified Linux/Godot Android 8.1 ARMv7 build.'
+          fi
+
+      - name: Post direct download and close issue
+        shell: bash
+        run: |
+          set -euo pipefail
+          download="https://github.com/$REPO/releases/download/$TAG/$APK"
+          run_url='${{ steps.find.outputs.run_url }}'
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "BUILD_SUCCESS\n\nDirect APK: $download\n\nVerified run: $run_url"
+          gh issue close "$ISSUE_NUMBER" --repo "$REPO" --reason completed
+
+      - name: Report failure
+        if: failure()
+        shell: bash
+        run: |
+          run_url='${{ steps.find.outputs.run_url }}'
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "BUILD_FAILED\n\nRun: ${run_url:-not-found}"
