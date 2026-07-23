@@ -4,22 +4,26 @@ var target: Node3D
 var mode: int = 0
 
 const OFFSETS: Array[Vector3] = [
-	Vector3(0.0, 2.7, 6.4),
-	Vector3(0.0, 1.42, -1.05),
-	Vector3(0.30, 1.28, -0.12)
+	Vector3(0.0, 3.25, 8.30),
+	Vector3(0.0, 2.05, 1.10),
+	Vector3(0.30, 1.48, -0.30)
 ]
+
+const LOOK_DISTANCES: Array[float] = [9.5, 16.0, 21.0]
+const LOOK_HEIGHTS: Array[float] = [1.15, 1.30, 1.30]
+const MIN_HEIGHTS_ABOVE_TARGET: Array[float] = [2.20, 1.45, 1.15]
 
 func setup(target_node: Node3D) -> void:
 	target = target_node
-	far = 320.0
-	near = 0.10
-	fov = 66.0
+	far = 420.0
+	near = 0.05
+	fov = 64.0
 	current = true
 	_snap_to_target()
 
 func cycle_mode() -> void:
 	mode = (mode + 1) % OFFSETS.size()
-	fov = [66.0, 70.0, 72.0][mode]
+	fov = [64.0, 68.0, 72.0][mode]
 	set_cull_mask_value(2, mode != 2)
 	_snap_to_target()
 
@@ -28,14 +32,15 @@ func _process(delta: float) -> void:
 		return
 	var target_transform := target.global_transform
 	var desired_position := target_transform * OFFSETS[mode]
-	var look_distance := [7.5, 20.0, 24.0][mode]
-	var look_height := [1.0, 1.25, 1.20][mode]
-	var look_target := target.global_position + Vector3.UP * look_height - target_transform.basis.z * look_distance
-	var positional_speed := [6.2, 12.0, 18.0][mode]
-	var rotation_speed := [7.5, 13.0, 18.0][mode]
+	desired_position.y = maxf(desired_position.y, target.global_position.y + MIN_HEIGHTS_ABOVE_TARGET[mode])
+	desired_position.y = maxf(desired_position.y, 1.65)
+	var look_target := target.global_position + Vector3.UP * LOOK_HEIGHTS[mode] - target_transform.basis.z * LOOK_DISTANCES[mode]
+	var positional_speed := [7.5, 11.5, 16.0][mode]
+	var rotation_speed := [8.5, 12.0, 16.0][mode]
 	var position_alpha := 1.0 - exp(-positional_speed * delta)
 	var rotation_alpha := 1.0 - exp(-rotation_speed * delta)
 	var new_position := global_position.lerp(desired_position, position_alpha)
+	new_position.y = maxf(new_position.y, 1.55)
 	var direction := (look_target - new_position).normalized()
 	var desired_basis := Basis.looking_at(direction, Vector3.UP)
 	var current_q := global_transform.basis.get_rotation_quaternion()
@@ -48,6 +53,9 @@ func _snap_to_target() -> void:
 		return
 	var target_transform := target.global_transform
 	var desired_position := target_transform * OFFSETS[mode]
-	var look_target := target.global_position + Vector3.UP * 1.1 - target_transform.basis.z * 8.0
-	global_transform = Transform3D(Basis.looking_at((look_target - desired_position).normalized(), Vector3.UP), desired_position)
+	desired_position.y = maxf(desired_position.y, target.global_position.y + MIN_HEIGHTS_ABOVE_TARGET[mode])
+	desired_position.y = maxf(desired_position.y, 1.65)
+	var look_target := target.global_position + Vector3.UP * LOOK_HEIGHTS[mode] - target_transform.basis.z * LOOK_DISTANCES[mode]
+	look_at_from_position(desired_position, look_target, Vector3.UP)
 	reset_physics_interpolation()
+	print("CAMERA_RIG_READY mode=%d position=%s target=%s" % [mode, str(global_position), str(look_target)])
