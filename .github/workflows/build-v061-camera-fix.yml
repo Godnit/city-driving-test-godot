@@ -1,0 +1,166 @@
+name: Build City Drive Missions v0.6.1 Camera Fix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.6.3
+    env:
+      GODOT_VERSION: 4.6.3
+      ANDROID_SDK_ROOT: /tmp/android-sdk
+
+    steps:
+      - name: Checkout camera-fix branch
+        uses: actions/checkout@v4
+        with:
+          ref: v0.6.1-camera-fix
+
+      - name: Confirm and patch source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s project.godot
+          test -s main.tscn
+          test -s scripts/main.gd
+          test -s scripts/car.gd
+          test -s scripts/camera_rig.gd
+          test -s scripts/traffic_car.gd
+          test -s scripts/driving_controls.gd
+          test -s export_presets.cfg
+          sed -i 's/var z_position := street_z + side_z \* 11\.0/var z_position: float = street_z + side_z * 11.0/' scripts/main.gd
+          sed -i 's/var x_value := side \* (17\.0 + float(index) \* 9\.0)/var x_value: float = side * (17.0 + float(index) * 9.0)/' scripts/main.gd
+          grep -q 'TARGET_MODEL_LENGTH' scripts/car.gd
+          grep -q 'MIN_HEIGHTS_ABOVE_TARGET' scripts/camera_rig.gd
+          echo "Source commit: $(git rev-parse HEAD)"
+
+      - name: Install realistic MIT sedan
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p assets/models
+          wget -q -O assets/models/player_sedan.glb 'https://media.githubusercontent.com/media/monstercameron/vkPathTracer/c3f130bff9334b8e927ba7c97360d70b0c5862ad/assets/models/complete_sedan/complete_sedan.glb'
+          test -s assets/models/player_sedan.glb
+          size=$(stat -c%s assets/models/player_sedan.glb)
+          echo "Sedan size: $size"
+          test "$size" -gt 1000000
+          test "$size" -lt $((30 * 1024 * 1024))
+          cp assets/models/player_sedan.glb assets/models/traffic_hatchback.glb
+
+      - name: Install licensed vehicle sounds
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p assets/audio
+          wget -q -O assets/audio/engine_idle.wav https://raw.githubusercontent.com/domasx2/banditracer-client/01db9b76381ab70c7d5f38c3678a04a2a4c23579/sounds/engine/loop_0.wav
+          wget -q -O assets/audio/engine_high.wav https://raw.githubusercontent.com/domasx2/banditracer-client/01db9b76381ab70c7d5f38c3678a04a2a4c23579/sounds/engine/loop_4.wav
+          if ! wget -q -O assets/audio/horn.wav https://opengameart.org/sites/default/files/car2.wav; then
+            wget -q -O assets/audio/horn.wav https://raw.githubusercontent.com/FugitiveTheGame/Fugitive3D/aad96dd0f72c72aa0e40287699d577d06e237bab/common/game/mode/fugitive/cop_car/car_horn.wav
+          fi
+          test -s assets/audio/engine_idle.wav
+          test -s assets/audio/engine_high.wav
+          test -s assets/audio/horn.wav
+
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$ANDROID_SDK_ROOT" /tmp/android-tools /tmp/android-tools.zip
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest" /tmp/android-tools
+          wget -q -O /tmp/android-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+          unzip -q /tmp/android-tools.zip -d /tmp/android-tools
+          cp -a /tmp/android-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
+          "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" 'platform-tools' 'build-tools;35.0.1' 'platforms;android-35'
+
+      - name: Configure Godot Android export
+        shell: bash
+        run: |
+          set -euo pipefail
+          template_source=$(find /root/.local/share/godot -type f -name android_debug.apk -printf '%h\n' | head -n 1)
+          template_target="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$template_target"
+          cp -a "$template_source"/. "$template_target"/
+          java_home=${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")}
+          mkdir -p "$HOME/.config/godot"
+          printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$HOME/.config/godot/editor_settings-4.6.tres"
+          {
+            printf '\nexport/android/java_sdk_path = "%s"\n' "$java_home"
+            printf 'export/android/android_sdk_path = "%s"\n' "$ANDROID_SDK_ROOT"
+            printf 'export/android/debug_keystore = "/root/debug.keystore"\n'
+            printf 'export/android/debug_keystore_user = "androiddebugkey"\n'
+            printf 'export/android/debug_keystore_pass = "android"\n'
+          } >> "$HOME/.config/godot/editor_settings-4.6.tres"
+          test -f "$template_target/android_debug.apk"
+
+      - name: Import Godot project
+        shell: bash
+        run: |
+          set -o pipefail
+          godot --headless --editor --quit --path . 2>&1 | tee import.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' import.log
+
+      - name: Smoke test normalized car and raised camera
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout 60s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call|Normalized sedan bounds are still too large|Player sedan has no usable mesh bounds' smoke-test.log
+          grep -q 'VEHICLE_VISUAL_NORMALIZED' smoke-test.log
+          grep -q 'CAMERA_RIG_READY' smoke-test.log
+          grep -q 'CITY_DRIVING_V06_READY' smoke-test.log
+
+      - name: Export APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/android
+          apk=build/android/CityDriveMissions-v0.6.1-CameraFix-Android8.1.apk
+          godot --headless --verbose --path . --export-debug Android "$apk" 2>&1 | tee build/android/export.log
+          test -s "$apk"
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' build/android/export.log
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=build/android/CityDriveMissions-v0.6.1-CameraFix-Android8.1.apk
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose "$apk"
+          unzip -tq "$apk"
+          size=$(stat -c%s "$apk")
+          echo "APK size: $size"
+          test "$size" -le $((100 * 1024 * 1024))
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging "$apk" | tee build/android/badging.txt
+          grep -q "native-code: 'armeabi-v7a'" build/android/badging.txt
+          grep -q "sdkVersion:'24'" build/android/badging.txt
+          sha256sum "$apk" | tee build/android/SHA256SUMS.txt
+
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CityDriveMissions-v0.6.1-CameraFix-Android8.1-APK
+          path: |
+            build/android/CityDriveMissions-v0.6.1-CameraFix-Android8.1.apk
+            build/android/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CityDriveMissions-v0.6.1-CameraFix-Diagnostics
+          path: |
+            import.log
+            smoke-test.log
+            build/android/export.log
+            build/android/badging.txt
+          if-no-files-found: ignore
+          retention-days: 3
