@@ -1,0 +1,1 @@
+Run Reality Builder Android build after removing Gradle-only SDK overrides from the legacy APK preset.
