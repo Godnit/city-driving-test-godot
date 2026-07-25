@@ -1,0 +1,28 @@
+name: Diagnose Reality Builder Source Upload
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'reality_builder_trigger/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print source part sizes and SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in reality_builder_build/source.tar.xz.b64.part*; do
+            wc -c "$file"
+            sha256sum "$file"
+          done
+          cat reality_builder_build/source.tar.xz.b64.part* > /tmp/source.b64
+          wc -c /tmp/source.b64
+          sha256sum /tmp/source.b64
