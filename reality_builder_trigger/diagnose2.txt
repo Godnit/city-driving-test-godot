@@ -1,0 +1,1 @@
+Run compact source hash diagnostic.
