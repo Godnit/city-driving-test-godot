@@ -13,17 +13,23 @@ permissions:
 jobs:
   diagnose-source:
     runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.6.3
     steps:
-      - name: Print source part sizes and SHA256
+      - name: Reconstruct source inside Godot container
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           git clone --quiet --depth 1 --branch "$GITHUB_HEAD_REF" https://github.com/Godnit/city-driving-test-godot.git repo
           cd repo
-          for file in reality_builder_build/source.tar.xz.b64.part*; do
-            wc -c "$file"
-            sha256sum "$file"
-          done
           cat reality_builder_build/source.tar.xz.b64.part* > /tmp/source.b64
-          wc -c /tmp/source.b64
-          sha256sum /tmp/source.b64
+          echo 'c7ab30484a65f2728fba7906b1c690a5aedfb818a2b299fb50f58dac9a41e024  /tmp/source.b64' | sha256sum -c -
+          base64 --decode /tmp/source.b64 > /tmp/RealityBuilder.tar.xz
+          echo 'c11bd036e629990c006f3c22127349c2c6ae8d615fcf041c26fdc607251cf85d  /tmp/RealityBuilder.tar.xz' | sha256sum -c -
+          command -v xz || true
+          tar --version | head -n 1
+          mkdir -p /tmp/reality-builder-source
+          tar -xJf /tmp/RealityBuilder.tar.xz -C /tmp/reality-builder-source
+          find /tmp/reality-builder-source -maxdepth 2 -type f | head -n 20
+          test -s /tmp/reality-builder-source/RealityBuilder/project.godot
+          echo 'RECONSTRUCTION_OK'
