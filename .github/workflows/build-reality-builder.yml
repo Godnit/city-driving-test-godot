@@ -6,6 +6,10 @@ on:
     paths:
       - '.github/workflows/build-reality-builder.yml'
       - 'reality_builder_build/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'reality_builder_trigger/**'
   workflow_dispatch:
 
 permissions:
