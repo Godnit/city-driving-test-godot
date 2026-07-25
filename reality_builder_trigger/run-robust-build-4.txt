@@ -1,0 +1,1 @@
+Capture the full Android build environment log.
