@@ -6,10 +6,31 @@ GODOT_VERSION=${GODOT_VERSION:-4.6.3}
 ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-/tmp/android-sdk}
 APK_NAME=RealityBuilder-v0.10.16-Android.apk
 APK_RELATIVE_PATH=build/android/$APK_NAME
+DEBUG_KEYSTORE="$HOME/.android/debug.keystore"
+
+mkdir -p "$HOME/.android"
+rm -f "$DEBUG_KEYSTORE"
+keytool -genkeypair -v \
+  -keystore "$DEBUG_KEYSTORE" \
+  -storepass android \
+  -alias androiddebugkey \
+  -keypass android \
+  -dname "CN=Android Debug,O=Android,C=US" \
+  -keyalg RSA \
+  -keysize 2048 \
+  -validity 10000 \
+  -deststoretype PKCS12
+
+test -s "$DEBUG_KEYSTORE"
+keytool -list -keystore "$DEBUG_KEYSTORE" -storepass android -alias androiddebugkey >/dev/null
+
+export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$DEBUG_KEYSTORE"
+export GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey"
+export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android"
 
 cd "$PROJECT_DIR"
 
-cat > export_presets.cfg <<'EOF'
+cat > export_presets.cfg <<EOF
 [preset.0]
 name="Android"
 platform="Android"
@@ -20,7 +41,7 @@ custom_features=""
 export_filter="all_resources"
 include_filter=""
 exclude_filter=""
-export_path="build/android/RealityBuilder-v0.10.16-Android.apk"
+export_path="build/android/$APK_NAME"
 patches=PackedStringArray()
 encryption_include_filters=""
 encryption_exclude_filters=""
@@ -44,6 +65,9 @@ package/unique_name="com.godnit.realitybuilder"
 package/name="Reality Builder"
 package/signed=true
 package/app_category=1
+keystore/debug="$DEBUG_KEYSTORE"
+keystore/debug_user="androiddebugkey"
+keystore/debug_password="android"
 screen/immersive_mode=true
 screen/support_small=true
 screen/support_normal=true
@@ -67,24 +91,37 @@ sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
 "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" 'platform-tools' 'build-tools;35.0.1' 'platforms;android-35'
 
-template_source=$(find /root/.local/share/godot -type f -name android_debug.apk -printf '%h\n' | head -n 1)
+template_source=$(find /root/.local/share/godot "$HOME/.local/share/godot" -type f -name android_debug.apk -printf '%h\n' 2>/dev/null | head -n 1)
 test -n "$template_source"
 template_target="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
 mkdir -p "$template_target"
 cp -a "$template_source"/. "$template_target"/
 
 java_home=${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")}
+test -d "$java_home/bin"
+test -x "$java_home/bin/java"
+test -x "$java_home/bin/javac"
+
 mkdir -p "$HOME/.config/godot"
 printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$HOME/.config/godot/editor_settings-4.6.tres"
 {
   printf '\nexport/android/java_sdk_path = "%s"\n' "$java_home"
   printf 'export/android/android_sdk_path = "%s"\n' "$ANDROID_SDK_ROOT"
-  printf 'export/android/debug_keystore = "/root/debug.keystore"\n'
+  printf 'export/android/debug_keystore = "%s"\n' "$DEBUG_KEYSTORE"
   printf 'export/android/debug_keystore_user = "androiddebugkey"\n'
   printf 'export/android/debug_keystore_pass = "android"\n'
 } >> "$HOME/.config/godot/editor_settings-4.6.tres"
 
 test -f "$template_target/android_debug.apk"
+test -x "$ANDROID_SDK_ROOT/platform-tools/adb"
+test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner"
+test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt"
+
+echo "HOME=$HOME"
+echo "JAVA_HOME=$java_home"
+echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+echo "DEBUG_KEYSTORE=$DEBUG_KEYSTORE"
+java -version
 godot --version
 
 cd "$PROJECT_DIR"
