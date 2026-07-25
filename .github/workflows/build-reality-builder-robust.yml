@@ -1,0 +1,79 @@
+name: Build Reality Builder APK Robust
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'reality_builder_trigger/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk-robust:
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.6.3
+    env:
+      GODOT_VERSION: 4.6.3
+      ANDROID_SDK_ROOT: /tmp/android-sdk
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Reconstruct verified source with Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat reality_builder_build/source.tar.xz.b64.part* > /tmp/source.b64
+          echo 'c7ab30484a65f2728fba7906b1c690a5aedfb818a2b299fb50f58dac9a41e024  /tmp/source.b64' | sha256sum -c -
+          base64 --decode /tmp/source.b64 > /tmp/RealityBuilder.tar.xz
+          echo 'c11bd036e629990c006f3c22127349c2c6ae8d615fcf041c26fdc607251cf85d  /tmp/RealityBuilder.tar.xz' | sha256sum -c -
+          if ! command -v python3 >/dev/null 2>&1; then
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3
+          fi
+          rm -rf /tmp/reality-builder-source RealityBuilder
+          mkdir -p /tmp/reality-builder-source
+          python3 - <<'PY'
+          import tarfile
+          with tarfile.open('/tmp/RealityBuilder.tar.xz', mode='r:xz') as archive:
+              archive.extractall('/tmp/reality-builder-source')
+          PY
+          cp -a /tmp/reality-builder-source/RealityBuilder ./RealityBuilder
+          test -s RealityBuilder/project.godot
+          test -s RealityBuilder/scenes/main.tscn
+          test -s RealityBuilder/assets/icon.png
+          echo 'Reality Builder source reconstructed successfully.'
+          du -sh RealityBuilder
+
+      - name: Build and verify Android APK
+        shell: bash
+        run: |
+          bash reality_builder_build/build_apk.sh RealityBuilder
+
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RealityBuilder-v0.10.16-Android-APK-Robust
+          path: |
+            RealityBuilder/build/android/RealityBuilder-v0.10.16-Android.apk
+            RealityBuilder/build/android/SHA256SUMS.txt
+            RealityBuilder/build/android/badging.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RealityBuilder-v0.10.16-Robust-Diagnostics
+          path: |
+            RealityBuilder/import.log
+            RealityBuilder/build/android/export.log
+            RealityBuilder/build/android/badging.txt
+          if-no-files-found: ignore
+          retention-days: 3
