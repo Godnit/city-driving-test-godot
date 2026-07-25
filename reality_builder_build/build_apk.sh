@@ -7,6 +7,7 @@ ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-/tmp/android-sdk}
 APK_NAME=RealityBuilder-v0.10.16-Android.apk
 APK_RELATIVE_PATH=build/android/$APK_NAME
 DEBUG_KEYSTORE="$HOME/.android/debug.keystore"
+BUILD_TOOLS_VERSION=36.0.0
 
 mkdir -p "$HOME/.android"
 rm -f "$DEBUG_KEYSTORE"
@@ -29,6 +30,14 @@ export GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey"
 export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android"
 
 cd "$PROJECT_DIR"
+
+# Android exports require ETC2/ASTC texture imports. On a Linux CI host this
+# isn't enabled automatically, and Godot 4.6 otherwise reports a blank
+# configuration error before export.
+if ! grep -q '^textures/vram_compression/import_etc2_astc=true$' project.godot; then
+  sed -i '/^\[rendering\]$/a textures/vram_compression/import_etc2_astc=true' project.godot
+fi
+grep -q '^textures/vram_compression/import_etc2_astc=true$' project.godot
 
 cat > export_presets.cfg <<EOF
 [preset.0]
@@ -55,6 +64,8 @@ custom_template/debug=""
 custom_template/release=""
 gradle_build/use_gradle_build=false
 gradle_build/export_format=0
+gradle_build/min_sdk="24"
+gradle_build/target_sdk="36"
 architectures/armeabi-v7a=true
 architectures/arm64-v8a=true
 architectures/x86=false
@@ -68,6 +79,7 @@ package/app_category=1
 keystore/debug="$DEBUG_KEYSTORE"
 keystore/debug_user="androiddebugkey"
 keystore/debug_password="android"
+launcher_icons/main_192x192="res://assets/icon.png"
 screen/immersive_mode=true
 screen/support_small=true
 screen/support_normal=true
@@ -91,8 +103,8 @@ sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
 "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" \
   'platform-tools' \
-  'build-tools;35.0.1' \
-  'platforms;android-35' \
+  "build-tools;$BUILD_TOOLS_VERSION" \
+  'platforms;android-36' \
   'cmake;3.10.2.4988404' \
   'ndk;28.1.13356709'
 
@@ -120,9 +132,9 @@ printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$HOME/.
 test -f "$template_target/android_debug.apk"
 test -f "$template_target/android_release.apk"
 test -x "$ANDROID_SDK_ROOT/platform-tools/adb"
-test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner"
-test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt"
-test -d "$ANDROID_SDK_ROOT/platforms/android-35"
+test -x "$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS_VERSION/apksigner"
+test -x "$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS_VERSION/aapt"
+test -d "$ANDROID_SDK_ROOT/platforms/android-36"
 test -d "$ANDROID_SDK_ROOT/ndk/28.1.13356709"
 test -d "$ANDROID_SDK_ROOT/cmake/3.10.2.4988404"
 
@@ -152,13 +164,13 @@ if grep -E 'SCRIPT ERROR|Parse Error|Invalid call' build/android/export.log; the
   exit 22
 fi
 
-"$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose "$APK_RELATIVE_PATH"
+"$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS_VERSION/apksigner" verify --verbose "$APK_RELATIVE_PATH"
 unzip -tq "$APK_RELATIVE_PATH"
 size=$(stat -c%s "$APK_RELATIVE_PATH")
 size_mb=$(awk "BEGIN {printf \"%.2f\", $size/1048576}")
 echo "APK size: $size bytes ($size_mb MB)"
 test "$size" -le $((150 * 1024 * 1024))
-"$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging "$APK_RELATIVE_PATH" | tee build/android/badging.txt
+"$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS_VERSION/aapt" dump badging "$APK_RELATIVE_PATH" | tee build/android/badging.txt
 grep -q "package: name='com.godnit.realitybuilder'" build/android/badging.txt
 grep -q 'armeabi-v7a' build/android/badging.txt
 grep -q 'arm64-v8a' build/android/badging.txt
