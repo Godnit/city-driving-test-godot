@@ -46,6 +46,8 @@ jobs:
           test -s RealityBuilder/project.godot
           test -s RealityBuilder/scenes/main.tscn
           test -s RealityBuilder/assets/icon.png
+          sed -i 's/PackedStringArray("4.3", "GL Compatibility")/PackedStringArray("4.6", "GL Compatibility")/' RealityBuilder/project.godot
+          grep -q 'PackedStringArray("4.6", "GL Compatibility")' RealityBuilder/project.godot
           echo 'Reality Builder source reconstructed successfully.'
           du -sh RealityBuilder
 
