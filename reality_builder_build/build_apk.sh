@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_DIR=${1:-RealityBuilder}
+GODOT_VERSION=${GODOT_VERSION:-4.6.3}
+ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-/tmp/android-sdk}
+APK_NAME=RealityBuilder-v0.10.16-Android.apk
+APK_RELATIVE_PATH=build/android/$APK_NAME
+
+cd "$PROJECT_DIR"
+
+cat > export_presets.cfg <<'EOF'
+[preset.0]
+name="Android"
+platform="Android"
+runnable=true
+advanced_options=false
+dedicated_server=false
+custom_features=""
+export_filter="all_resources"
+include_filter=""
+exclude_filter=""
+export_path="build/android/RealityBuilder-v0.10.16-Android.apk"
+patches=PackedStringArray()
+encryption_include_filters=""
+encryption_exclude_filters=""
+seed=0
+encrypt_pck=false
+encrypt_directory=false
+script_export_mode=2
+
+[preset.0.options]
+custom_template/debug=""
+custom_template/release=""
+gradle_build/use_gradle_build=false
+gradle_build/export_format=0
+architectures/armeabi-v7a=true
+architectures/arm64-v8a=true
+architectures/x86=false
+architectures/x86_64=false
+version/code=1016
+version/name="0.10.16"
+package/unique_name="com.godnit.realitybuilder"
+package/name="Reality Builder"
+package/signed=true
+package/app_category=1
+screen/immersive_mode=true
+screen/support_small=true
+screen/support_normal=true
+screen/support_large=true
+screen/support_xlarge=true
+user_data_backup/allow=false
+command_line/extra_args=""
+apk_expansion/enable=false
+permissions/internet=false
+permissions/access_network_state=false
+permissions/vibrate=false
+EOF
+
+cd ..
+rm -rf "$ANDROID_SDK_ROOT" /tmp/android-tools /tmp/android-tools.zip
+mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest" /tmp/android-tools
+wget -q -O /tmp/android-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+unzip -q /tmp/android-tools.zip -d /tmp/android-tools
+cp -a /tmp/android-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
+"$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" 'platform-tools' 'build-tools;35.0.1' 'platforms;android-35'
+
+template_source=$(find /root/.local/share/godot -type f -name android_debug.apk -printf '%h\n' | head -n 1)
+test -n "$template_source"
+template_target="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+mkdir -p "$template_target"
+cp -a "$template_source"/. "$template_target"/
+
+java_home=${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")}
+mkdir -p "$HOME/.config/godot"
+printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$HOME/.config/godot/editor_settings-4.6.tres"
+{
+  printf '\nexport/android/java_sdk_path = "%s"\n' "$java_home"
+  printf 'export/android/android_sdk_path = "%s"\n' "$ANDROID_SDK_ROOT"
+  printf 'export/android/debug_keystore = "/root/debug.keystore"\n'
+  printf 'export/android/debug_keystore_user = "androiddebugkey"\n'
+  printf 'export/android/debug_keystore_pass = "android"\n'
+} >> "$HOME/.config/godot/editor_settings-4.6.tres"
+
+test -f "$template_target/android_debug.apk"
+godot --version
+
+cd "$PROJECT_DIR"
+set -o pipefail
+godot --headless --editor --quit --path . 2>&1 | tee import.log
+if grep -E 'SCRIPT ERROR|Parse Error|Invalid call' import.log; then
+  echo 'Godot project validation found script errors.' >&2
+  exit 21
+fi
+
+mkdir -p build/android
+godot --headless --verbose --path . --export-debug Android "$APK_RELATIVE_PATH" 2>&1 | tee build/android/export.log
+test -s "$APK_RELATIVE_PATH"
+if grep -E 'SCRIPT ERROR|Parse Error|Invalid call' build/android/export.log; then
+  echo 'Godot export found script errors.' >&2
+  exit 22
+fi
+
+"$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose "$APK_RELATIVE_PATH"
+unzip -tq "$APK_RELATIVE_PATH"
+size=$(stat -c%s "$APK_RELATIVE_PATH")
+size_mb=$(awk "BEGIN {printf \"%.2f\", $size/1048576}")
+echo "APK size: $size bytes ($size_mb MB)"
+test "$size" -le $((150 * 1024 * 1024))
+"$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging "$APK_RELATIVE_PATH" | tee build/android/badging.txt
+grep -q "package: name='com.godnit.realitybuilder'" build/android/badging.txt
+grep -q 'armeabi-v7a' build/android/badging.txt
+grep -q 'arm64-v8a' build/android/badging.txt
+sha256sum "$APK_RELATIVE_PATH" | tee build/android/SHA256SUMS.txt
+
+{
+  echo '## Reality Builder APK'
+  echo "- File: $APK_NAME"
+  echo "- Size: $size_mb MB ($size bytes)"
+  echo '- Package: com.godnit.realitybuilder'
+  echo '- Architectures: armeabi-v7a, arm64-v8a'
+} >> "$GITHUB_STEP_SUMMARY"
