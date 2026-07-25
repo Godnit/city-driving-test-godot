@@ -54,7 +54,9 @@ jobs:
       - name: Build and verify Android APK
         shell: bash
         run: |
-          bash reality_builder_build/build_apk.sh RealityBuilder
+          set -o pipefail
+          mkdir -p "$HOME/.local/share/godot" RealityBuilder/build/android
+          bash reality_builder_build/build_apk.sh RealityBuilder 2>&1 | tee RealityBuilder/build-full.log
 
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
@@ -74,6 +76,7 @@ jobs:
         with:
           name: RealityBuilder-v0.10.16-Robust-Diagnostics
           path: |
+            RealityBuilder/build-full.log
             RealityBuilder/import.log
             RealityBuilder/build/android/export.log
             RealityBuilder/build/android/badging.txt
