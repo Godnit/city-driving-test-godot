@@ -1,0 +1,1 @@
+Run Reality Builder APK build after Godot feature compatibility adjustment.

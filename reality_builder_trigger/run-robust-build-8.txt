@@ -1,0 +1,1 @@
+Run Reality Builder Android build after enabling ETC2/ASTC textures and Android target SDK 36.
