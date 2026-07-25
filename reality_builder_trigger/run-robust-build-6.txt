@@ -1,0 +1,1 @@
+Run Reality Builder Android build after preserving the full diagnostic log.
