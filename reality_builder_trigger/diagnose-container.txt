@@ -1,0 +1,1 @@
+Test Reality Builder source reconstruction inside Godot container.
