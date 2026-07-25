@@ -1,0 +1,56 @@
+name: Build Reality Builder Lite APK v2
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'reality_builder_trigger/lite-v2-**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-lite-apk-v2:
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.6.3
+    env:
+      GODOT_VERSION: 4.6.3
+      ANDROID_SDK_ROOT: /tmp/android-sdk
+      BUILD_TOOLS_VERSION: 36.0.0
+      APK_NAME: RealityBuilder-Lite-v0.10.17-Android.apk
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build, run world smoke test, and verify APK
+        shell: bash
+        run: |
+          bash reality_builder_build/build_lite_v2.sh 2>&1 | tee lite-build-v2.log
+
+      - name: Upload verified Lite APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RealityBuilder-Lite-v0.10.17-Android-APK-v2
+          path: |
+            RealityBuilder/build/android/RealityBuilder-Lite-v0.10.17-Android.apk
+            RealityBuilder/build/android/SHA256SUMS-LITE.txt
+            RealityBuilder/build/android/badging-lite.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Upload Lite diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RealityBuilder-Lite-v0.10.17-Diagnostics-v2
+          path: |
+            lite-build-v2.log
+            RealityBuilder/import-lite.log
+            RealityBuilder/runtime-lite.log
+            RealityBuilder/build/android/export-lite.log
+          if-no-files-found: ignore
+          retention-days: 3
