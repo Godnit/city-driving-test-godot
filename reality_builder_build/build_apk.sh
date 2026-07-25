@@ -89,9 +89,14 @@ unzip -q /tmp/android-tools.zip -d /tmp/android-tools
 cp -a /tmp/android-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
 sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
-"$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" 'platform-tools' 'build-tools;35.0.1' 'platforms;android-35'
+"$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" \
+  'platform-tools' \
+  'build-tools;35.0.1' \
+  'platforms;android-35' \
+  'cmake;3.10.2.4988404' \
+  'ndk;28.1.13356709'
 
-template_source=$(find /root/.local/share/godot "$HOME/.local/share/godot" -type f -name android_debug.apk -printf '%h\n' 2>/dev/null | head -n 1)
+template_source=$(find /root/.local/share/godot -type f -name android_debug.apk -printf '%h\n' 2>/dev/null | head -n 1)
 test -n "$template_source"
 template_target="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
 mkdir -p "$template_target"
@@ -113,16 +118,23 @@ printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$HOME/.
 } >> "$HOME/.config/godot/editor_settings-4.6.tres"
 
 test -f "$template_target/android_debug.apk"
+test -f "$template_target/android_release.apk"
 test -x "$ANDROID_SDK_ROOT/platform-tools/adb"
 test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner"
 test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt"
+test -d "$ANDROID_SDK_ROOT/platforms/android-35"
+test -d "$ANDROID_SDK_ROOT/ndk/28.1.13356709"
+test -d "$ANDROID_SDK_ROOT/cmake/3.10.2.4988404"
 
 echo "HOME=$HOME"
 echo "JAVA_HOME=$java_home"
 echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 echo "DEBUG_KEYSTORE=$DEBUG_KEYSTORE"
+echo "TEMPLATE_SOURCE=$template_source"
+echo "TEMPLATE_TARGET=$template_target"
 java -version
 godot --version
+"$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --list_installed
 
 cd "$PROJECT_DIR"
 set -o pipefail
