@@ -14,11 +14,12 @@ jobs:
   diagnose-source:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
       - name: Print source part sizes and SHA256
         shell: bash
         run: |
           set -euo pipefail
+          git clone --quiet --depth 1 --branch "$GITHUB_HEAD_REF" https://github.com/Godnit/city-driving-test-godot.git repo
+          cd repo
           for file in reality_builder_build/source.tar.xz.b64.part*; do
             wc -c "$file"
             sha256sum "$file"
