@@ -16,8 +16,8 @@ The roads, barriers, traffic lights, lamps, road markings, sidewalks, and buildi
   - https://opengameart.org/content/racing-car-engine-sound-loops
 - **Car Horn** by Bart Kelsey — CC0
   - https://opengameart.org/content/car-horn
-- **Car Sound Effects Pack** by Kenney — CC0
-  - https://opengameart.org/content/car-sound-effects
+- **Car tire squeal skid loop** by audible-edge (Tom Haigh), submitted by qubodup — CC BY 3.0
+  - https://opengameart.org/content/car-tire-squeal-skid-loop
 
 ## Inspiration
 
