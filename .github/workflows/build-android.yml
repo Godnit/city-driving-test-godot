@@ -55,7 +55,6 @@ jobs:
           test -s assets/models/player_sedan.glb
           size=$(stat -c%s assets/models/player_sedan.glb)
           echo "Sketchfab car size: $size bytes"
-          file assets/models/player_sedan.glb
           test "$size" -gt 100000
           test "$size" -lt $((45 * 1024 * 1024))
           head -c 4 assets/models/player_sedan.glb | grep -q 'glTF'
