@@ -6,6 +6,13 @@ const ROAD_LENGTH: float = 780.0
 const ROAD_CENTER_Z: float = -310.0
 const MAIN_ROAD_HALF: float = 11.0
 const CROSS_STREETS: Array[float] = [30.0, -150.0, -330.0, -510.0]
+const BUILDING_SEGMENTS: Array[Vector2] = [
+	Vector2(78.0, 44.0),
+	Vector2(16.0, -136.0),
+	Vector2(-164.0, -316.0),
+	Vector2(-344.0, -496.0),
+	Vector2(-524.0, -698.0)
+]
 const PLAYER_START := Vector3(5.4, 0.48, 58.0)
 const CAR_COLORS: Array[Color] = [
 	Color(0.88, 0.15, 0.055),
@@ -116,9 +123,14 @@ func _ready() -> void:
 	loading_layer.queue_free()
 	_show_main_menu()
 	if "--smoke-test" in OS.get_cmdline_user_args():
+		if not _run_touch_routing_check():
+			get_tree().quit(2)
+			return
 		print("CITY_DRIVE_V1_READY")
 		print("SKETCHFAB_MODEL_SLOT_READY")
 		print("ANDROID_81_ARMV7_READY")
+		print("MENU_TOUCH_ROUTING_READY")
+		print("DENSE_CITY_BLOCKS_READY")
 		await get_tree().process_frame
 		get_tree().quit()
 
@@ -199,6 +211,8 @@ func _create_city() -> void:
 		_create_intersection(street_z)
 	_create_sidewalks()
 	_create_markings()
+	_create_center_dividers()
+	_create_frontage_fences()
 	_create_buildings()
 	_create_street_lights()
 	_create_barriers()
@@ -235,6 +249,39 @@ func _create_markings() -> void:
 				cross.append(Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(x_pos, 0.025, street_z - 3.5)))
 				cross.append(Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(x_pos, 0.025, street_z + 3.5)))
 		_add_multimesh_boxes(Vector3(0.12, 0.026, 3.2), Color(0.94, 0.94, 0.90), cross)
+
+func _create_center_dividers() -> void:
+	for bounds in BUILDING_SEGMENTS:
+		var length: float = bounds.x - bounds.y
+		var center_z: float = (bounds.x + bounds.y) * 0.5
+		_add_static_box(Vector3(0.0, 0.13, center_z), Vector3(1.05, 0.30, length), Color(0.46, 0.47, 0.43))
+		_add_visual_box(Vector3(0.0, 0.30, center_z), Vector3(0.70, 0.12, length - 0.5), Color(0.20, 0.36, 0.17))
+
+func _create_frontage_fences() -> void:
+	var post_transforms: Array[Transform3D] = []
+	var rail_transforms: Array[Transform3D] = []
+	for bounds in BUILDING_SEGMENTS:
+		var length: float = bounds.x - bounds.y
+		var center_z: float = (bounds.x + bounds.y) * 0.5
+		for side in [-1.0, 1.0]:
+			var fence_x: float = side * 15.15
+			_add_static_box(Vector3(fence_x, 0.38, center_z), Vector3(0.25, 0.76, length), Color(0.17, 0.18, 0.18))
+			var post_count: int = maxi(2, int(length / 3.0))
+			for post_index in range(post_count + 1):
+				var z_value: float = bounds.x - float(post_index) * length / float(post_count)
+				post_transforms.append(Transform3D(Basis.IDENTITY, Vector3(fence_x, 1.08, z_value)))
+			for y_value in [0.83, 1.34]:
+				rail_transforms.append(Transform3D(Basis.IDENTITY, Vector3(fence_x, y_value, center_z)))
+	_add_multimesh_boxes(Vector3(0.14, 1.55, 0.14), Color(0.055, 0.060, 0.063), post_transforms)
+	for transform_value in rail_transforms:
+		var bounds_length: float = _segment_length_at_z(transform_value.origin.z)
+		_add_visual_box(transform_value.origin, Vector3(0.11, 0.10, bounds_length), Color(0.055, 0.060, 0.063))
+
+func _segment_length_at_z(z_value: float) -> float:
+	for bounds in BUILDING_SEGMENTS:
+		if is_equal_approx(z_value, (bounds.x + bounds.y) * 0.5):
+			return bounds.x - bounds.y
+	return 1.0
 
 func _create_intersection(street_z: float) -> void:
 	for side in [-1.0, 1.0]:
@@ -283,44 +330,98 @@ func _update_traffic_lights() -> void:
 
 func _create_buildings() -> void:
 	var palette: Array[Color] = [
-		Color(0.34, 0.37, 0.40),
-		Color(0.43, 0.37, 0.32),
-		Color(0.28, 0.34, 0.39),
-		Color(0.48, 0.45, 0.39),
-		Color(0.30, 0.31, 0.34)
+		Color(0.57, 0.49, 0.39),
+		Color(0.43, 0.48, 0.51),
+		Color(0.64, 0.56, 0.45),
+		Color(0.47, 0.38, 0.34),
+		Color(0.37, 0.43, 0.49),
+		Color(0.60, 0.45, 0.34),
+		Color(0.49, 0.50, 0.44)
 	]
 	var building_index: int = 0
-	for z_index in range(18):
-		var z_value: float = 62.0 - float(z_index) * 42.0
-		if _near_intersection(z_value, 24.0):
-			continue
+	for bounds in BUILDING_SEGMENTS:
 		for side in [-1.0, 1.0]:
-			var height: float = 10.0 + float((building_index * 7) % 11)
-			var width: float = 12.0 + float(building_index % 3) * 2.0
-			var x_value: float = side * (21.0 + float(building_index % 2) * 3.0)
-			_create_building(Vector3(x_value, 0.0, z_value), Vector3(width, height, 24.0), palette[building_index % palette.size()])
-			building_index += 1
+			var cursor_z: float = bounds.x
+			while cursor_z > bounds.y + 0.5:
+				var requested_frontage: float = 18.0 + float((building_index * 5) % 9)
+				var frontage: float = minf(requested_frontage, cursor_z - bounds.y)
+				var depth: float = 9.0 + float((building_index * 3) % 6)
+				var height: float = 8.0 + float((building_index * 7) % 14)
+				if building_index % 7 == 0:
+					height += 5.0
+				var center_z: float = cursor_z - frontage * 0.5
+				var center_x: float = side * (15.65 + depth * 0.5)
+				_create_building(
+					Vector3(center_x, 0.0, center_z),
+					Vector3(depth, height, maxf(5.0, frontage - 0.32)),
+					palette[building_index % palette.size()],
+					building_index % 5
+				)
+				cursor_z -= frontage
+				building_index += 1
 	for street_z in CROSS_STREETS:
 		for side in [-1.0, 1.0]:
 			for index in range(4):
 				var x_value: float = side * (35.0 + float(index) * 22.0)
 				var height: float = 9.0 + float((index + building_index) % 4) * 2.3
-				_create_building(Vector3(x_value, 0.0, street_z + side * 23.0), Vector3(15.0, height, 16.0), palette[building_index % palette.size()])
+				_create_building(
+					Vector3(x_value, 0.0, street_z + side * 23.0),
+					Vector3(15.0, height, 16.0),
+					palette[building_index % palette.size()],
+					building_index % 5
+				)
 				building_index += 1
 
-func _create_building(base_position: Vector3, size_value: Vector3, color_value: Color) -> void:
+func _create_building(base_position: Vector3, size_value: Vector3, color_value: Color, style_index: int = 0) -> void:
 	_add_visual_box(base_position + Vector3(0.0, size_value.y * 0.5, 0.0), size_value, color_value)
-	var window_color := Color(0.34, 0.58, 0.69)
-	var rows: int = mini(5, int(size_value.y / 2.8))
+	var road_side: float = signf(base_position.x)
+	var front_x: float = base_position.x - road_side * (size_value.x * 0.5 + 0.026)
+	var window_color := Color(0.24, 0.43, 0.55).lightened(float(style_index) * 0.035)
+	var rows: int = mini(5, int(size_value.y / 2.75))
+	var columns: int = clampi(int(size_value.z / 5.0), 1, 3)
 	for row in range(rows):
-		var y_value: float = 2.0 + float(row) * 2.7
-		for side in [-1.0, 1.0]:
-			_add_visual_box(base_position + Vector3(side * (size_value.x * 0.5 + 0.015), y_value, 0.0), Vector3(0.04, 1.0, size_value.z * 0.62), window_color.darkened(float(row) * 0.035))
+		var y_value: float = 2.15 + float(row) * 2.7
+		for column in range(columns):
+			var z_value: float = base_position.z - size_value.z * 0.5 + (float(column) + 0.5) * size_value.z / float(columns)
+			var window_width: float = minf(2.25, size_value.z / float(columns) * 0.62)
+			_add_visual_box(
+				Vector3(front_x, y_value, z_value),
+				Vector3(0.055, 1.15, window_width),
+				window_color.darkened(float((row + column) % 3) * 0.055)
+			)
+	if style_index % 2 == 0:
+		var shop_color := Color(0.10, 0.12, 0.14)
+		_add_visual_box(
+			Vector3(front_x - road_side * 0.015, 1.25, base_position.z),
+			Vector3(0.07, 2.15, size_value.z * 0.72),
+			shop_color
+		)
+		var awning_color := Color(0.82, 0.22, 0.08) if style_index == 0 else Color(0.13, 0.32, 0.50)
+		_add_visual_box(
+			Vector3(front_x - road_side * 0.48, 2.55, base_position.z),
+			Vector3(0.95, 0.16, size_value.z * 0.78),
+			awning_color
+		)
+	else:
+		var door_z: float = base_position.z + size_value.z * 0.28
+		_add_visual_box(Vector3(front_x - road_side * 0.02, 1.15, door_z), Vector3(0.07, 2.20, 1.55), Color(0.16, 0.12, 0.095))
+	if style_index in [1, 3]:
+		_add_visual_box(
+			Vector3(front_x - road_side * 0.035, size_value.y * 0.55, base_position.z),
+			Vector3(0.08, size_value.y * 0.82, 0.34),
+			color_value.lightened(0.22)
+		)
 	var roof := BoxMesh.new()
 	roof.size = Vector3(size_value.x + 0.6, 0.35, size_value.z + 0.6)
 	var roof_mesh := _make_colored_mesh(roof, color_value.darkened(0.28))
 	roof_mesh.position = base_position + Vector3(0.0, size_value.y + 0.18, 0.0)
 	add_child(roof_mesh)
+	if style_index == 4:
+		_add_visual_box(
+			base_position + Vector3(0.0, size_value.y + 0.75, 0.0),
+			Vector3(size_value.x * 0.60, 1.2, size_value.z * 0.45),
+			color_value.darkened(0.18)
+		)
 
 func _create_street_lights() -> void:
 	for index in range(29):
@@ -440,12 +541,6 @@ func _create_hud() -> void:
 	hud_damage = _hud_label(root, "الحالة 100%", 0.015, 0.075, 0.22, 0.13, 14, Color(0.40, 0.80, 1.0))
 	hud_coins = _hud_label(root, "¢ 0", 0.64, 0.015, 0.78, 0.125, 18, Color(1.0, 0.76, 0.12))
 	navigation_arrow = _hud_label(root, "↑", 0.43, 0.15, 0.57, 0.30, 44, Color(1.0, 0.42, 0.04))
-	var pause_button := Button.new()
-	pause_button.text = "Ⅱ"
-	_set_rect(pause_button, 0.91, 0.16, 0.98, 0.29)
-	pause_button.add_theme_font_size_override("font_size", 20)
-	pause_button.pressed.connect(_pause_game)
-	root.add_child(pause_button)
 	controls = Control.new()
 	controls.name = "DrivingControls"
 	controls.set_script(load("res://scripts/driving_controls.gd"))
@@ -456,6 +551,7 @@ func _create_hud() -> void:
 	controls.horn_pressed.connect(func() -> void: car.play_horn())
 	controls.camera_pressed.connect(func() -> void: camera_rig.cycle_mode())
 	controls.gear_selected.connect(func(value: String) -> void: car.set_gear(value))
+	controls.pause_pressed.connect(_pause_game)
 	pause_panel = _create_pause_panel(root)
 	hud_layer.visible = false
 
@@ -467,6 +563,7 @@ func _hud_label(parent: Control, text_value: String, left: float, top: float, ri
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
 	_set_rect(label, left, top, right, bottom)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(label)
 	return label
 
@@ -488,6 +585,7 @@ func _create_main_menu() -> void:
 	menu_layer.layer = 40
 	add_child(menu_layer)
 	var background := ColorRect.new()
+	background.name = "Background"
 	background.color = Color(0.015, 0.026, 0.042, 0.95)
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	menu_layer.add_child(background)
@@ -503,13 +601,16 @@ func _create_main_menu() -> void:
 	for index in range(missions.size()):
 		var mission: Dictionary = missions[index]
 		var button := Button.new()
+		button.name = "MissionButton%d" % index
 		button.text = "%s\n%s   |   الجائزة ¢%d" % [mission["title"], mission["subtitle"], mission["reward"]]
 		_set_rect(button, 0.53, 0.19 + float(index) * 0.20, 0.94, 0.35 + float(index) * 0.20)
 		button.add_theme_font_size_override("font_size", 15)
+		button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
+		button.focus_mode = Control.FOCUS_NONE
 		button.pressed.connect(_select_mission.bind(index))
 		background.add_child(button)
-	_add_menu_button(background, "المرآب واختيار السيارة", 0.08, 0.52, 0.43, 0.66, _show_garage)
-	_add_menu_button(background, "ابدأ المهمة المختارة", 0.08, 0.71, 0.43, 0.88, _start_mission)
+	_add_menu_button(background, "المرآب واختيار السيارة", 0.08, 0.52, 0.43, 0.66, _show_garage, "GarageButton")
+	_add_menu_button(background, "ابدأ المهمة المختارة", 0.08, 0.71, 0.43, 0.88, _start_mission, "StartButton")
 
 func _create_garage() -> void:
 	garage_layer = CanvasLayer.new()
@@ -550,11 +651,15 @@ func _create_result_screen() -> void:
 	_add_menu_button(background, "القائمة", 0.54, 0.68, 0.80, 0.84, _show_main_menu)
 	result_layer.visible = false
 
-func _add_menu_button(parent: Control, text_value: String, left: float, top: float, right: float, bottom: float, callback: Callable) -> void:
+func _add_menu_button(parent: Control, text_value: String, left: float, top: float, right: float, bottom: float, callback: Callable, node_name: String = "") -> void:
 	var button := Button.new()
+	if not node_name.is_empty():
+		button.name = node_name
 	button.text = text_value
 	_set_rect(button, left, top, right, bottom)
 	button.add_theme_font_size_override("font_size", 17)
+	button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
+	button.focus_mode = Control.FOCUS_NONE
 	button.pressed.connect(callback)
 	parent.add_child(button)
 
@@ -588,11 +693,14 @@ func _apply_car_paint() -> void:
 
 func _start_mission() -> void:
 	state = GameState.PLAYING
+	Input.emulate_mouse_from_touch = false
 	menu_layer.visible = false
 	garage_layer.visible = false
 	result_layer.visible = false
 	hud_layer.visible = true
 	pause_panel.visible = false
+	controls.visible = true
+	controls.set_controls_enabled(true)
 	get_tree().paused = false
 	elapsed = 0.0
 	fuel = 100.0
@@ -614,8 +722,10 @@ func _pause_game() -> void:
 	if state != GameState.PLAYING:
 		return
 	state = GameState.PAUSED
+	Input.emulate_mouse_from_touch = true
 	pause_panel.visible = true
 	controls.visible = false
+	controls.set_controls_enabled(false)
 	car.set_control("accelerate", false)
 	car.set_control("brake", false)
 	car.set_steer(0.0)
@@ -624,27 +734,33 @@ func _resume_game() -> void:
 	if state != GameState.PAUSED:
 		return
 	state = GameState.PLAYING
+	Input.emulate_mouse_from_touch = false
 	pause_panel.visible = false
 	controls.visible = true
+	controls.set_controls_enabled(true)
 
 func _show_main_menu() -> void:
 	state = GameState.MENU
+	Input.emulate_mouse_from_touch = true
 	menu_layer.visible = true
 	garage_layer.visible = false
 	hud_layer.visible = false
 	result_layer.visible = false
 	pause_panel.visible = false
-	controls.visible = true
+	controls.visible = false
+	controls.set_controls_enabled(false)
 	car.set_control("accelerate", false)
 	car.set_control("brake", false)
 	car.set_steer(0.0)
 	car.set_gear("P")
-	var label := menu_layer.get_node_or_null("ColorRect/MenuCoins") as Label
+	var label := menu_layer.get_node_or_null("Background/MenuCoins") as Label
 	if label:
 		label.text = "الرصيد  ¢ %d" % coins
 
 func _show_garage() -> void:
 	state = GameState.GARAGE
+	Input.emulate_mouse_from_touch = true
+	controls.set_controls_enabled(false)
 	menu_layer.visible = false
 	garage_layer.visible = true
 
@@ -652,6 +768,8 @@ func _finish_mission(success: bool) -> void:
 	if state != GameState.PLAYING:
 		return
 	state = GameState.RESULT
+	Input.emulate_mouse_from_touch = true
+	controls.set_controls_enabled(false)
 	hud_layer.visible = false
 	result_layer.visible = true
 	car.set_control("accelerate", false)
@@ -731,6 +849,24 @@ func _save_game() -> void:
 	config.set_value("profile", "coins", coins)
 	config.set_value("profile", "car", selected_car)
 	config.save("user://city_drive_save.cfg")
+
+func _run_touch_routing_check() -> bool:
+	var mission_button := menu_layer.get_node_or_null("Background/MissionButton0") as Button
+	if mission_button == null:
+		push_error("Touch routing check failed: mission button missing")
+		return false
+	if not Input.emulate_mouse_from_touch:
+		push_error("Touch routing check failed: menu touch emulation disabled")
+		return false
+	if controls.is_processing_input():
+		push_error("Touch routing check failed: hidden driving controls are intercepting the menu")
+		return false
+	mission_button.pressed.emit()
+	if state != GameState.PLAYING or not controls.is_processing_input() or Input.emulate_mouse_from_touch:
+		push_error("Touch routing check failed: mission button did not enter driving mode")
+		return false
+	_show_main_menu()
+	return state == GameState.MENU and Input.emulate_mouse_from_touch and not controls.is_processing_input()
 
 func _set_rect(control: Control, left: float, top: float, right: float, bottom: float) -> void:
 	control.anchor_left = left
