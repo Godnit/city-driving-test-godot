@@ -55,7 +55,7 @@ jobs:
           )
           for part in "${parts[@]}"; do test -s "$part"; done
           printf '%s\n' "${parts[@]}" | xargs cat | tr -d '\r\n' | base64 -d > /tmp/sketchfab-sedan.glb.xz
-          xz -dc /tmp/sketchfab-sedan.glb.xz > assets/models/player_sedan.glb
+          python3 -c 'import lzma, pathlib; pathlib.Path("assets/models/player_sedan.glb").write_bytes(lzma.decompress(pathlib.Path("/tmp/sketchfab-sedan.glb.xz").read_bytes()))'
           test -s assets/models/player_sedan.glb
           size=$(stat -c%s assets/models/player_sedan.glb)
           echo "Sketchfab sedan size: $size bytes"
