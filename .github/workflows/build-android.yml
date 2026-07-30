@@ -52,7 +52,6 @@ jobs:
             assets_payload/part_05.b64
             assets_payload/part_07.b64
             assets_payload/part_08.b64
-            assets_payload/part_09.b64
           )
           for part in "${parts[@]}"; do test -s "$part"; done
           printf '%s\n' "${parts[@]}" | xargs cat | tr -d '\r\n' | base64 -d > /tmp/sketchfab-sedan.glb.xz
