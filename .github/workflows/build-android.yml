@@ -43,7 +43,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p assets/models
-          model_url=https://huggingface.co/datasets/allenai/objaverse/resolve/main/hf-objaverse-v1/glbs/000-023/fe02fba6302e450ea8424591493341ea.glb
+          uid=fe02fba6302e450ea8424591493341ea
+          wget --tries=3 --timeout=90 -q -O /tmp/object-paths.json.gz https://huggingface.co/datasets/allenai/objaverse/resolve/main/object-paths.json.gz
+          apt-get update -qq
+          apt-get install -y -qq jq
+          hf_path=$(gzip -dc /tmp/object-paths.json.gz | jq -r --arg uid "$uid" '.[$uid]')
+          test -n "$hf_path"
+          test "$hf_path" != null
+          model_url="https://huggingface.co/datasets/allenai/objaverse/resolve/main/$hf_path"
           wget --tries=3 --timeout=45 -q -O assets/models/player_sedan.glb "$model_url"
           test -s assets/models/player_sedan.glb
           size=$(stat -c%s assets/models/player_sedan.glb)
