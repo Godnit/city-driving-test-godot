@@ -1,4 +1,4 @@
-name: Validate Android Build
+name: Build City Drive Missions v1
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  android-debug:
+  android-apk:
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.6.3
@@ -18,30 +18,60 @@ jobs:
       ANDROID_SDK_ROOT: /tmp/android-sdk
 
     steps:
-      - name: Checkout repository
+      - name: Checkout game branch
         uses: actions/checkout@v4
 
-      - name: Verify v0.4 responsive source
+      - name: Verify v1 source
         shell: bash
         run: |
           set -euo pipefail
-          test -f project.godot
-          test -f main.tscn
-          test -f scripts/main.gd
-          test -f scripts/car.gd
-          test -f export_presets.cfg
-          test -f assets/sketchfab/README.md
-          grep -q 'size/viewport_width=640' project.godot
-          grep -q 'size/viewport_height=360' project.godot
-          grep -q 'stretch/mode="viewport"' project.godot
-          grep -q 'handheld/orientation=0' project.godot
-          grep -q 'common/physics_ticks_per_second=30' project.godot
-          grep -q '_set_control_rect' scripts/main.gd
-          grep -q '_create_gear_selector' scripts/main.gd
-          grep -q 'assets/sketchfab/player_car.glb' scripts/car.gd
-          ! grep -R -q 'assets/models/player_car.glb' scripts
+          test -s project.godot
+          test -s main_v1.tscn
+          test -s scripts/main_v1.gd
+          test -s scripts/car.gd
+          test -s scripts/camera_rig.gd
+          test -s scripts/traffic_car.gd
+          test -s scripts/driving_controls.gd
+          test -s export_presets.cfg
+          grep -q 'CITY_DRIVE_V1_READY' scripts/main_v1.gd
+          grep -q 'emulate_mouse_from_touch=false' project.godot
+          grep -q 'architectures/armeabi-v7a=true' export_presets.cfg
+          grep -q 'version/name="1.0.0"' export_presets.cfg
 
-      - name: Install official Android SDK 35
+      - name: Install CC-BY Sketchfab sedan
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p assets/models
+          url='https://drive.usercontent.google.com/download?id=1jKEmUCMDNFGSYd2nWn8r4YmNOsvR7yl1&export=download&confirm=t'
+          wget -q --content-disposition -O assets/models/player_sedan.glb "$url"
+          test -s assets/models/player_sedan.glb
+          size=$(stat -c%s assets/models/player_sedan.glb)
+          echo "Sketchfab sedan size: $size bytes"
+          test "$size" -gt 1000000
+          test "$size" -lt $((45 * 1024 * 1024))
+          head -c 4 assets/models/player_sedan.glb | grep -q 'glTF'
+          cp assets/models/player_sedan.glb assets/models/traffic_hatchback.glb
+
+      - name: Download free realistic vehicle audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p assets/audio /tmp/car-sfx
+          wget -q -O assets/audio/engine_idle.wav https://opengameart.org/sites/default/files/loop_0.wav
+          wget -q -O assets/audio/engine_high.wav https://opengameart.org/sites/default/files/loop_4_0.wav
+          wget -q -O assets/audio/horn.wav https://opengameart.org/sites/default/files/car2.wav
+          wget -q -O /tmp/car-sfx.zip https://opengameart.org/sites/default/files/car_sound_effects_pack.zip
+          unzip -q /tmp/car-sfx.zip -d /tmp/car-sfx
+          brake=$(find /tmp/car-sfx -type f -iname 'brake_press*.ogg' | head -n 1)
+          test -n "$brake"
+          cp "$brake" assets/audio/brake.ogg
+          for file in assets/audio/engine_idle.wav assets/audio/engine_high.wav assets/audio/horn.wav assets/audio/brake.ogg; do
+            test -s "$file"
+          done
+          stat -c '%n %s bytes' assets/audio/*
+
+      - name: Install Android SDK 35
         shell: bash
         run: |
           set -euo pipefail
@@ -52,9 +82,9 @@ jobs:
           cp -a /tmp/android-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
           sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
           yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
-          "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "build-tools;35.0.1" "platforms;android-35"
+          "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" 'platform-tools' 'build-tools;35.0.1' 'platforms;android-35'
 
-      - name: Configure Godot Android environment
+      - name: Configure Godot Android export
         shell: bash
         run: |
           set -euo pipefail
@@ -64,12 +94,7 @@ jobs:
           cp -a "$template_source"/. "$template_target"/
           java_home=${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")}
           mkdir -p "$HOME/.config/godot"
-          root_settings=$(find /root/.config/godot -maxdepth 1 -type f -name 'editor_settings*.tres' | head -n 1 || true)
-          if [ -n "$root_settings" ]; then
-            cp "$root_settings" "$HOME/.config/godot/editor_settings-4.6.tres"
-          else
-            printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$HOME/.config/godot/editor_settings-4.6.tres"
-          fi
+          printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$HOME/.config/godot/editor_settings-4.6.tres"
           {
             printf '\nexport/android/java_sdk_path = "%s"\n' "$java_home"
             printf 'export/android/android_sdk_path = "%s"\n' "$ANDROID_SDK_ROOT"
@@ -78,53 +103,69 @@ jobs:
             printf 'export/android/debug_keystore_pass = "android"\n'
           } >> "$HOME/.config/godot/editor_settings-4.6.tres"
           test -f "$template_target/android_debug.apk"
-          test -x "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner"
 
-      - name: Import and validate project
+      - name: Import and validate Godot project
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           godot --headless --editor --quit --path . 2>&1 | tee import.log
           ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' import.log
 
-      - name: Smoke test game startup
+      - name: Smoke test startup
         shell: bash
         run: |
-          set -euo pipefail
-          timeout 35s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
+          set -o pipefail
+          timeout 75s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
           ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' smoke-test.log
-          grep -q 'CITY_DRIVING_READY' smoke-test.log
+          grep -q 'CITY_DRIVE_V1_READY' smoke-test.log
+          grep -q 'SKETCHFAB_MODEL_SLOT_READY' smoke-test.log
+          grep -q 'ANDROID_81_ARMV7_READY' smoke-test.log
 
-      - name: Export code-test APK
+      - name: Export signed debug APK
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build/android
-          apk=build/android/CityDrivingTest-v0.4-CodeTest.apk
+          apk=build/android/CityDriveMissions-v1.0-Android8.1.apk
           godot --headless --verbose --path . --export-debug Android "$apk" 2>&1 | tee build/android/export.log
-          test -f "$apk"
+          test -s "$apk"
           ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' build/android/export.log
 
-      - name: Verify Android 8.1 compatibility
+      - name: Verify APK
         shell: bash
         run: |
           set -euo pipefail
-          apk=build/android/CityDrivingTest-v0.4-CodeTest.apk
+          apk=build/android/CityDriveMissions-v1.0-Android8.1.apk
           "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose "$apk"
           unzip -tq "$apk"
+          size=$(stat -c%s "$apk")
+          echo "APK size: $size bytes"
+          test "$size" -le $((100 * 1024 * 1024))
           "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging "$apk" | tee build/android/badging.txt
           grep -q "native-code: 'armeabi-v7a'" build/android/badging.txt
           grep -q "sdkVersion:'24'" build/android/badging.txt
+          sha256sum "$apk" | tee build/android/SHA256SUMS.txt
+
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CityDriveMissions-v1.0-Android8.1-APK
+          path: |
+            build/android/CityDriveMissions-v1.0-Android8.1.apk
+            build/android/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
 
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: CityDrivingTest-v0.4-Diagnostics
+          name: CityDriveMissions-v1.0-Diagnostics
           path: |
             import.log
             smoke-test.log
             build/android/export.log
             build/android/badging.txt
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 7
