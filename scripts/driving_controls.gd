@@ -5,15 +5,29 @@ signal action_changed(action: String, pressed: bool)
 signal horn_pressed
 signal camera_pressed
 signal gear_selected(gear: String)
+signal pause_pressed
 
 var steer_value: float = 0.0
 var gear: String = "D"
 var touch_roles: Dictionary = {}
 var mouse_role: String = ""
+var controls_enabled: bool = false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	set_process_input(true)
+	set_controls_enabled(false)
+	queue_redraw()
+
+func set_controls_enabled(enabled: bool) -> void:
+	controls_enabled = enabled
+	set_process_input(enabled)
+	if not enabled:
+		touch_roles.clear()
+		mouse_role = ""
+		steer_value = 0.0
+		steer_changed.emit(0.0)
+		action_changed.emit("accelerate", false)
+		action_changed.emit("brake", false)
 	queue_redraw()
 
 func _notification(what: int) -> void:
@@ -21,6 +35,8 @@ func _notification(what: int) -> void:
 		queue_redraw()
 
 func _input(event: InputEvent) -> void:
+	if not controls_enabled:
+		return
 	if event is InputEventScreenTouch:
 		var touch := event as InputEventScreenTouch
 		if touch.pressed:
@@ -78,6 +94,8 @@ func _activate_role(role: String, position: Vector2) -> void:
 			action_changed.emit("brake", true)
 		"camera":
 			camera_pressed.emit()
+		"pause":
+			pause_pressed.emit()
 		_:
 			if role.begins_with("gear_"):
 				gear = role.trim_prefix("gear_")
@@ -119,6 +137,8 @@ func _role_at(position: Vector2) -> String:
 		return "gas"
 	if _brake_rect().has_point(position):
 		return "brake"
+	if _pause_rect().has_point(position):
+		return "pause"
 	if _camera_rect().has_point(position):
 		return "camera"
 	var gear_rects := _gear_rects()
@@ -138,6 +158,9 @@ func _gas_rect() -> Rect2:
 
 func _brake_rect() -> Rect2:
 	return Rect2(size.x * 0.715, size.y * 0.68, size.x * 0.105, size.y * 0.26)
+
+func _pause_rect() -> Rect2:
+	return Rect2(size.x * 0.79, size.y * 0.17, size.x * 0.075, size.y * 0.12)
 
 func _camera_rect() -> Rect2:
 	return Rect2(size.x * 0.865, size.y * 0.035, size.x * 0.105, size.y * 0.12)
@@ -174,6 +197,9 @@ func _draw() -> void:
 	var camera_rect := _camera_rect()
 	draw_style_box(_style(Color(0.04, 0.055, 0.07, 0.78), Color(0.75, 0.82, 0.86, 0.82), 12.0), camera_rect)
 	_draw_centered_text(camera_rect, "CAM", 15, Color.WHITE)
+	var pause_rect := _pause_rect()
+	draw_style_box(_style(Color(0.04, 0.055, 0.07, 0.84), Color(1.0, 0.48, 0.08, 0.90), 10.0), pause_rect)
+	_draw_centered_text(pause_rect, "Ⅱ", 18, Color.WHITE)
 	var gear_rects := _gear_rects()
 	for key in gear_rects.keys():
 		var rect := gear_rects[key] as Rect2
