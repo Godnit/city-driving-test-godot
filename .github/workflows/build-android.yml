@@ -38,29 +38,16 @@ jobs:
           grep -q 'architectures/armeabi-v7a=true' export_presets.cfg
           grep -q 'version/name="1.0.0"' export_presets.cfg
 
-      - name: Install CC-BY Sketchfab sedan
+      - name: Download CC-BY Sketchfab car
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p assets/models
-          parts=(
-            assets_payload/part_00.b64
-            assets_payload/part_01.b64
-            assets_payload/part_02.b64
-            assets_payload/part_03.b64
-            assets_payload/part_04.b64
-            assets_payload/part_05.b64
-            assets_payload/part_07.b64
-            assets_payload/part_08.b64
-          )
-          for part in "${parts[@]}"; do test -s "$part"; done
-          apt-get update -qq
-          apt-get install -y -qq xz-utils
-          printf '%s\n' "${parts[@]}" | xargs cat | tr -d '\r\n' | base64 -d > /tmp/sketchfab-sedan.glb.xz
-          xz -dc /tmp/sketchfab-sedan.glb.xz > assets/models/player_sedan.glb
+          model_url=https://huggingface.co/datasets/allenai/objaverse/resolve/main/hf-objaverse-v1/glbs/000-023/fe02fba6302e450ea8424591493341ea.glb
+          wget --tries=3 --timeout=45 -q -O assets/models/player_sedan.glb "$model_url"
           test -s assets/models/player_sedan.glb
           size=$(stat -c%s assets/models/player_sedan.glb)
-          echo "Sketchfab sedan size: $size bytes"
+          echo "Sketchfab car size: $size bytes"
           file assets/models/player_sedan.glb
           test "$size" -gt 100000
           test "$size" -lt $((45 * 1024 * 1024))
