@@ -54,8 +54,10 @@ jobs:
             assets_payload/part_08.b64
           )
           for part in "${parts[@]}"; do test -s "$part"; done
+          apt-get update -qq
+          apt-get install -y -qq xz-utils
           printf '%s\n' "${parts[@]}" | xargs cat | tr -d '\r\n' | base64 -d > /tmp/sketchfab-sedan.glb.xz
-          python3 -c 'import lzma, pathlib; pathlib.Path("assets/models/player_sedan.glb").write_bytes(lzma.decompress(pathlib.Path("/tmp/sketchfab-sedan.glb.xz").read_bytes()))'
+          xz -dc /tmp/sketchfab-sedan.glb.xz > assets/models/player_sedan.glb
           test -s assets/models/player_sedan.glb
           size=$(stat -c%s assets/models/player_sedan.glb)
           echo "Sketchfab sedan size: $size bytes"
