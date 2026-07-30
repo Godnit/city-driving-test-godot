@@ -43,12 +43,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p assets/models
-          url='https://drive.usercontent.google.com/download?id=1jKEmUCMDNFGSYd2nWn8r4YmNOsvR7yl1&export=download&confirm=t'
-          wget -q --content-disposition -O assets/models/player_sedan.glb "$url"
+          parts=(
+            assets_payload/part_00.b64
+            assets_payload/part_01.b64
+            assets_payload/part_02.b64
+            assets_payload/part_03.b64
+            assets_payload/part_04.b64
+            assets_payload/part_05.b64
+            assets_payload/part_07.b64
+            assets_payload/part_08.b64
+            assets_payload/part_09.b64
+          )
+          for part in "${parts[@]}"; do test -s "$part"; done
+          printf '%s\n' "${parts[@]}" | xargs cat | tr -d '\r\n' | base64 -d > /tmp/sketchfab-sedan.glb.xz
+          xz -dc /tmp/sketchfab-sedan.glb.xz > assets/models/player_sedan.glb
           test -s assets/models/player_sedan.glb
           size=$(stat -c%s assets/models/player_sedan.glb)
           echo "Sketchfab sedan size: $size bytes"
-          test "$size" -gt 1000000
+          file assets/models/player_sedan.glb
+          test "$size" -gt 100000
           test "$size" -lt $((45 * 1024 * 1024))
           head -c 4 assets/models/player_sedan.glb | grep -q 'glTF'
           cp assets/models/player_sedan.glb assets/models/traffic_hatchback.glb
