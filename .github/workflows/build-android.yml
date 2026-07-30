@@ -68,12 +68,8 @@ jobs:
           wget -q -O assets/audio/engine_idle.wav https://opengameart.org/sites/default/files/loop_0.wav
           wget -q -O assets/audio/engine_high.wav https://opengameart.org/sites/default/files/loop_4_0.wav
           wget -q -O assets/audio/horn.wav https://opengameart.org/sites/default/files/car2.wav
-          wget -q -O /tmp/car-sfx.zip https://opengameart.org/sites/default/files/car_sound_effects_pack.zip
-          unzip -q /tmp/car-sfx.zip -d /tmp/car-sfx
-          brake=$(find /tmp/car-sfx -type f -iname 'brake_press*.ogg' | head -n 1)
-          test -n "$brake"
-          cp "$brake" assets/audio/brake.ogg
-          for file in assets/audio/engine_idle.wav assets/audio/engine_high.wav assets/audio/horn.wav assets/audio/brake.ogg; do
+          wget -q -O assets/audio/brake.wav https://opengameart.org/sites/default/files/tires_squal_loop.wav
+          for file in assets/audio/engine_idle.wav assets/audio/engine_high.wav assets/audio/horn.wav assets/audio/brake.wav; do
             test -s "$file"
           done
           stat -c '%n %s bytes' assets/audio/*
