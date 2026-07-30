@@ -140,7 +140,7 @@ func _create_audio() -> void:
 	engine_idle = _make_audio_player("res://assets/audio/engine_idle.wav", true, -12.0)
 	engine_high = _make_audio_player("res://assets/audio/engine_high.wav", true, -50.0)
 	horn_player = _make_audio_player("res://assets/audio/horn.wav", false, -5.0)
-	brake_player = _make_audio_player("res://assets/audio/brake.ogg", false, -12.0)
+	brake_player = _make_audio_player("res://assets/audio/brake.wav", false, -12.0)
 	if engine_idle.stream:
 		engine_idle.play()
 	if engine_high.stream:
