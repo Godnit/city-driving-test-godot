@@ -45,6 +45,7 @@ jobs:
           sha256sum halaqa-source.zip
           echo '08aed8a474cf5f8a88ec3b1e27e22431afd606152ecc8d7c69a4b42ca8f51d80  halaqa-source.zip' | sha256sum -c -
           unzip -q halaqa-source.zip
+          sed -i 's/import android\.app\.PrintManager;/import android.print.PrintManager;/' halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java
           test -f halaqa_apk_project/app/src/main/assets/index.html
 
       - name: Create signing key
