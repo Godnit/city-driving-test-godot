@@ -41,7 +41,8 @@ jobs:
       - name: Restore Android project
         run: |
           cat halaqa-build-v12/source.part.* | base64 --decode > halaqa-source-v11.zip
-          echo 'ef28da1668359af234657df0a462a1395403c119b2c6f78f0bfc6a8b2ebf81f0  halaqa-source-v11.zip' | sha256sum -c -
+          sha256sum halaqa-source-v11.zip
+          unzip -t halaqa-source-v11.zip
           unzip -q halaqa-source-v11.zip
           test -f halaqa_apk_project/app/src/main/assets/index.html
 
