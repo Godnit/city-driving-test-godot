@@ -1,0 +1,5 @@
+Package: com.halaqa.followup
+Version: 1.1.0
+Version code: 2
+Phase: 1
+Signed with the same key as version 1.0.0.

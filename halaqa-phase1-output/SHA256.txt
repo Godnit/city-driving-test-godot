@@ -1,0 +1,1 @@
+0f00df9bdd9950c94236345399d7fbde97d31f726c5a82d8b85826f34f8fdf0e  halaqa_apk_project/app/build/outputs/apk/debug/app-debug.apk
