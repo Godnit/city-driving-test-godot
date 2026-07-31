@@ -1,8 +1,11 @@
 name: Build Halaqa Phase 1 APK
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches: [halaqa-phase1-build-final]
+    paths:
+      - '.github/workflows/build-halaqa-apk.yml'
+      - 'halaqa-phase1/**'
   workflow_dispatch:
 
 permissions:
