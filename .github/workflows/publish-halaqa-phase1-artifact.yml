@@ -1,0 +1,33 @@
+name: Publish Halaqa Phase 1 Artifact
+
+on:
+  push:
+    branches: [halaqa-phase1-build-final]
+    paths: ['.github/workflows/publish-halaqa-phase1-artifact.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: halaqa-phase1-build-final
+      - name: Record run id
+        run: |
+          test -f halaqa-phase1-output/halaqa-phase1.apk
+          echo "$GITHUB_RUN_ID" > halaqa-phase1-output/ARTIFACT_RUN_ID.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add halaqa-phase1-output/ARTIFACT_RUN_ID.txt
+          git commit -m 'Record Halaqa phase 1 artifact run id' || true
+          git push origin HEAD:halaqa-phase1-build-final
+      - uses: actions/upload-artifact@v4
+        with:
+          name: halaqa-phase1-apk
+          path: halaqa-phase1-output/halaqa-phase1.apk
+          if-no-files-found: error
+          retention-days: 30
