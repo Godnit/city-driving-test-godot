@@ -8,8 +8,13 @@ on:
       - 'halaqa-phase1/**'
   workflow_dispatch:
 
+concurrency:
+  group: halaqa-phase1-build
+  cancel-in-progress: true
+
 permissions:
-  contents: read
+  contents: write
+  actions: read
 
 jobs:
   build:
@@ -17,6 +22,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: halaqa-phase1-build-final
 
       - uses: actions/setup-java@v4
         with:
@@ -58,24 +65,45 @@ jobs:
           sed -i 's/return "1\.0\.0";/return "1.1.0";/' "$APP/src/main/java/com/halaqa/followup/MainActivity.java"
           sed -i -E 's/versionCode [0-9]+/versionCode 2/' "$APP/build.gradle"
           sed -i -E "s/versionName '[^']+'/versionName '1.1.0'/" "$APP/build.gradle"
-          sed -i '/signingConfig signingConfigs\.debug/d' "$APP/build.gradle"
           grep -q 'phase1.js' "$APP/src/main/assets/index.html"
           grep -q 'versionCode 2' "$APP/build.gradle"
 
-      - name: Build unsigned release APK
-        run: gradle -p halaqa_apk_project --no-daemon --stacktrace assembleRelease
-
-      - name: Prepare signing tools and APK
+      - name: Reuse existing application signing key
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p output
-          cp halaqa_apk_project/app/build/outputs/apk/release/app-release-unsigned.apk output/halaqa-phase1-unsigned.apk
-          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          cp "$SDK_ROOT/build-tools/35.0.0/lib/apksigner.jar" output/apksigner.jar
-          sha256sum output/halaqa-phase1-unsigned.apk > output/SHA256_UNSIGNED.txt
+          curl -L --fail \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8797282011/zip" \
+            -o previous-artifact.zip
+          mkdir previous-artifact
+          unzip -q previous-artifact.zip -d previous-artifact
+          mkdir -p "$HOME/.android"
+          cp previous-artifact/halaqa-followup-signing-key.keystore "$HOME/.android/debug.keystore"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: halaqa-phase1-unsigned
-          path: output/
-          if-no-files-found: error
-          retention-days: 7
+      - name: Build signed update APK
+        run: gradle -p halaqa_apk_project --no-daemon --stacktrace assembleDebug
+
+      - name: Publish APK payload to temporary branch
+        run: |
+          mkdir -p halaqa-phase1-output
+          APK=halaqa_apk_project/app/build/outputs/apk/debug/app-debug.apk
+          cp "$APK" halaqa-phase1-output/halaqa-phase1.apk
+          base64 -w0 "$APK" > halaqa-phase1-output/halaqa-phase1.apk.b64
+          sha256sum "$APK" > halaqa-phase1-output/SHA256.txt
+          keytool -printcert -jarfile "$APK" > halaqa-phase1-output/SIGNING_CERT.txt
+          cat > halaqa-phase1-output/UPDATE_INFO.txt <<'INFO'
+          Package: com.halaqa.followup
+          Version: 1.1.0
+          Version code: 2
+          Phase: 1
+          Signed with the same key as version 1.0.0.
+          INFO
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add halaqa-phase1-output
+          git commit -m 'Publish Halaqa phase 1 APK' || exit 0
+          git push origin HEAD:halaqa-phase1-build-final
