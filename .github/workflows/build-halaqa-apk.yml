@@ -39,7 +39,11 @@ jobs:
 
       - name: Restore Android project
         run: |
-          cat halaqa-build/source.part.* | base64 --decode > halaqa-source.zip
+          sha256sum halaqa-build/source.part.0[0-7]
+          cat halaqa-build/source.part.0[0-7] | base64 --decode > halaqa-source.zip
+          echo "Expected ZIP SHA256: 08aed8a474cf5f8a88ec3b1e27e22431afd606152ecc8d7c69a4b42ca8f51d80"
+          sha256sum halaqa-source.zip
+          echo '08aed8a474cf5f8a88ec3b1e27e22431afd606152ecc8d7c69a4b42ca8f51d80  halaqa-source.zip' | sha256sum -c -
           unzip -q halaqa-source.zip
           test -f halaqa_apk_project/app/src/main/assets/index.html
 
