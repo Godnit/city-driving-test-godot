@@ -41,13 +41,12 @@ jobs:
       - name: Restore Android project
         run: |
           cat halaqa-build-v12/source.part.* | base64 --decode > halaqa-source-v11.zip
-          sha256sum halaqa-source-v11.zip
           unzip -oq halaqa-source-v11.zip || true
           cp halaqa-build-v12/MainActivity.java halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java
           test -f halaqa_apk_project/app/src/main/assets/index.html
           test -f halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java
 
-      - name: Reuse previous signing key
+      - name: Restore stable signing key
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -60,28 +59,77 @@ jobs:
           mkdir previous-artifact
           unzip -q previous-artifact.zip -d previous-artifact
           mkdir -p "$HOME/.android"
-          cp previous-artifact/halaqa-followup-signing-key.keystore "$HOME/.android/debug.keystore"
-          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
+          cp previous-artifact/halaqa-followup-signing-key.keystore "$HOME/.android/halaqa-stable.keystore"
+          keytool -list -keystore "$HOME/.android/halaqa-stable.keystore" -storepass android -alias androiddebugkey
 
-      - name: Build APK update
-        run: gradle -p halaqa_apk_project --no-daemon --stacktrace assembleDebug
+      - name: Configure stable package and signing
+        run: |
+          cat > halaqa_apk_project/app/build.gradle <<'GRADLE'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.halaqa.followup'
+              compileSdk 35
+
+              signingConfigs {
+                  stable {
+                      storeFile file(System.getProperty('user.home') + '/.android/halaqa-stable.keystore')
+                      storePassword 'android'
+                      keyAlias 'androiddebugkey'
+                      keyPassword 'android'
+                  }
+              }
+
+              defaultConfig {
+                  applicationId 'com.halaqa.followup.stable'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.1.0'
+              }
+
+              buildTypes {
+                  debug {
+                      signingConfig signingConfigs.stable
+                  }
+                  release {
+                      minifyEnabled false
+                      shrinkResources false
+                      signingConfig signingConfigs.stable
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          GRADLE
+          sed -i 's#<string name="app_name">.*</string>#<string name="app_name">دفتر المتابعة المطوّر</string>#' halaqa_apk_project/app/src/main/res/values/strings.xml
+
+      - name: Build stable APK
+        run: gradle -p halaqa_apk_project --no-daemon --stacktrace assembleRelease
 
       - name: Prepare output
         run: |
           mkdir -p output
-          cp halaqa_apk_project/app/build/outputs/apk/debug/app-debug.apk output/halaqa-followup-v1.1.apk
-          sha256sum output/halaqa-followup-v1.1.apk > output/SHA256.txt
-          keytool -printcert -jarfile output/halaqa-followup-v1.1.apk > output/SIGNING_CERT.txt
+          cp halaqa_apk_project/app/build/outputs/apk/release/app-release.apk output/halaqa-followup-stable-v1.1.apk
+          sha256sum output/halaqa-followup-stable-v1.1.apk > output/SHA256.txt
+          keytool -printcert -jarfile output/halaqa-followup-stable-v1.1.apk > output/SIGNING_CERT.txt
           cat > output/UPDATE_INFO.txt <<'INFO'
-          Package: com.halaqa.followup
+          Package: com.halaqa.followup.stable
+          App name: دفتر المتابعة المطوّر
           Version: 1.1.0
-          Version code: 2
-          Signed with the same key as version 1.0.0.
+          Version code: 1
+          This stable package installs beside the original app so data can be exported and restored safely.
+          Future updates will use the same stable signing key.
           INFO
 
       - uses: actions/upload-artifact@v4
         with:
-          name: halaqa-followup-apk-v1-1
+          name: halaqa-followup-stable-v1-1
           path: output/
           if-no-files-found: error
           retention-days: 30
