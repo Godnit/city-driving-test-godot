@@ -1,0 +1,37 @@
+name: Publish APK Signer Tool
+
+on:
+  push:
+    branches: [halaqa-phase1-build-final]
+    paths: ['.github/workflows/publish-apksigner-tool.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: halaqa-phase1-build-final
+      - name: Locate and publish apksigner
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          JAR=$(find "$SDK_ROOT/build-tools" -path '*/lib/apksigner.jar' | sort -V | tail -1)
+          test -f "$JAR"
+          mkdir -p signer-output halaqa-phase1-output
+          cp "$JAR" signer-output/apksigner.jar
+          echo "$GITHUB_RUN_ID" > halaqa-phase1-output/SIGNER_RUN_ID.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add halaqa-phase1-output/SIGNER_RUN_ID.txt
+          git commit -m 'Record APK signer artifact run id' || true
+          git push origin HEAD:halaqa-phase1-build-final
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apksigner-tool
+          path: signer-output/apksigner.jar
+          if-no-files-found: error
+          retention-days: 30
