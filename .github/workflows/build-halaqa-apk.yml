@@ -27,10 +27,15 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Install Android SDK 35
+      - name: Ensure Android SDK 35
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          echo "Android SDK: $SDK_ROOT"
+          if [ ! -d "$SDK_ROOT/platforms/android-35" ] || [ ! -d "$SDK_ROOT/build-tools/35.0.0" ]; then
+            yes | "$SDKMANAGER" --licenses >/dev/null || true
+            "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+          fi
 
       - name: Restore Android project
         run: |
@@ -41,6 +46,7 @@ jobs:
       - name: Create signing key
         run: |
           mkdir -p $HOME/.android
+          rm -f $HOME/.android/debug.keystore
           keytool -genkeypair -v \
             -keystore $HOME/.android/debug.keystore \
             -storepass android \
