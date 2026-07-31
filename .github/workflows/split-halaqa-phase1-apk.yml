@@ -1,0 +1,28 @@
+name: Split Halaqa Phase 1 APK Payload
+
+on:
+  push:
+    branches: [halaqa-phase1-build-final]
+    paths: ['.github/workflows/split-halaqa-phase1-apk.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: halaqa-phase1-build-final
+      - name: Split APK base64 for retrieval
+        run: |
+          test -f halaqa-phase1-output/halaqa-phase1.apk.b64
+          rm -f halaqa-phase1-output/apk.part.*
+          split -b 8000 -d -a 2 halaqa-phase1-output/halaqa-phase1.apk.b64 halaqa-phase1-output/apk.part.
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add halaqa-phase1-output/apk.part.*
+          git commit -m 'Split Halaqa phase 1 APK payload' || exit 0
+          git push origin HEAD:halaqa-phase1-build-final
