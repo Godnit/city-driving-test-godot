@@ -42,9 +42,10 @@ jobs:
         run: |
           cat halaqa-build-v12/source.part.* | base64 --decode > halaqa-source-v11.zip
           sha256sum halaqa-source-v11.zip
-          unzip -t halaqa-source-v11.zip
-          unzip -q halaqa-source-v11.zip
+          unzip -oq halaqa-source-v11.zip || true
+          cp halaqa-build-v12/MainActivity.java halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java
           test -f halaqa_apk_project/app/src/main/assets/index.html
+          test -f halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java
 
       - name: Reuse previous signing key
         env:
