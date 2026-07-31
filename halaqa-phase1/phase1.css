@@ -1,0 +1,19 @@
+/* المرحلة الأولى: مراجعة متعددة السور وزر اليوم */
+.compact-month{grid-template-columns:42px minmax(120px,1fr) 42px auto!important}
+.today-button,.quick-today-button{border:1.5px solid var(--teal)!important;background:var(--teal)!important;color:#fff!important;border-radius:10px!important;padding:7px 10px!important;font-size:11px!important;font-weight:900!important;white-space:nowrap}
+.quick-today-button{display:block;margin:7px auto 0;min-width:95px}
+.review-day{display:block!important;border-top:1px solid var(--line);background:#fff}
+.review-day-head{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#dcefeb;border-bottom:1px solid var(--line-dark);padding:10px 12px;color:var(--teal-dark)}
+.review-day-head>div{display:flex;align-items:center;gap:10px}.review-day-head strong{font-size:17px}.review-day-head small{color:var(--muted);font-size:11px}
+.review-main-card{padding:10px 12px 12px}.review-items-title{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin-bottom:8px}.review-items-title span{font-weight:900;color:var(--teal-dark)}.review-items-title small{font-size:10px;color:var(--muted);text-align:left}
+.review-items-list{display:grid;gap:7px}.review-item-row{display:grid;grid-template-columns:28px minmax(105px,1fr) auto minmax(110px,1fr) 34px;align-items:center;gap:6px;background:#f5faf9;border:1px solid #9fc5c1;border-radius:11px;padding:6px}
+.review-item-number{width:25px;height:25px;border-radius:50%;display:grid;place-items:center;background:var(--teal);color:#fff;font-size:11px;font-weight:900}
+.review-surah-button{min-height:40px;border:1.5px solid #79a9a6;border-radius:9px;background:#fff;color:var(--ink);padding:7px 9px;display:flex;justify-content:space-between;align-items:center;gap:5px;text-align:right;font-weight:800}.review-surah-button.has-value{color:var(--teal-dark);background:#eff8f6;font-weight:900}.review-surah-button b{color:var(--teal);font-size:16px}.review-range-word{font-size:11px;font-weight:900;color:var(--muted)}
+.review-remove{width:32px;height:32px;border:0;border-radius:9px;background:#fff0ee;color:var(--danger);font-size:19px;font-weight:900}.review-empty{text-align:center;border:1px dashed #9dbeba;border-radius:10px;padding:13px;color:var(--muted);font-size:12px}
+.review-add-button{margin-top:8px;width:100%;min-height:40px;border:1.5px dashed var(--teal);border-radius:10px;background:#edf7f5;color:var(--teal-dark);font-weight:900}
+.review-grade-row{display:grid;grid-template-columns:130px minmax(0,1fr);align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}.review-grade-row label,.review-flags-label{font-size:12px;font-weight:900;color:var(--teal-dark)}.review-grade-row select{min-height:42px}
+.review-flags{display:grid;grid-template-columns:130px minmax(0,1fr);align-items:center;gap:8px;margin-top:8px}.review-flags .flags-cell{border:0;padding:0}.review-note-row{display:flex;justify-content:flex-start;margin-top:8px}.review-note-row .note-btn{width:auto;min-width:120px;padding:0 12px;display:flex;gap:8px}.review-note-row .note-label{display:inline}
+@media(max-width:640px){
+  .compact-month{grid-template-columns:38px minmax(105px,1fr) 38px auto!important}.global-month-row{align-items:center}.today-button{padding:6px 8px!important;font-size:10px!important}
+  .review-item-row{grid-template-columns:25px minmax(0,1fr) 25px;grid-template-areas:'num start remove' '. word .' '. end .';gap:5px}.review-item-number{grid-area:num}.review-surah-button:not(.end){grid-area:start}.review-range-word{grid-area:word;text-align:center}.review-surah-button.end{grid-area:end}.review-remove{grid-area:remove}.review-items-title{display:block}.review-items-title small{display:block;text-align:right;margin-top:3px}.review-grade-row,.review-flags{grid-template-columns:1fr}
+}
