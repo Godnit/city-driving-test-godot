@@ -4,6 +4,8 @@ on:
   push:
     branches: [halaqa-apk-build-20260731]
     paths: ['.github/workflows/build-halaqa-apk.yml']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
