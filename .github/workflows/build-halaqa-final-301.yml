@@ -6,6 +6,11 @@ on:
     paths:
       - 'halaqa-final-301/**'
       - '.github/workflows/build-halaqa-final-301.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'halaqa-final-301/**'
+      - '.github/workflows/build-halaqa-final-301.yml'
   workflow_dispatch:
 
 permissions:
@@ -70,7 +75,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Record successful run id
+      - name: Record successful push run id
+        if: github.event_name == 'push'
         run: |
           mkdir -p halaqa-final-output
           echo "$GITHUB_RUN_ID" > halaqa-final-output/LAST_RUN_ID_301.txt
