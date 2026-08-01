@@ -1,0 +1,81 @@
+name: Build Halaqa 3.0.1 APK
+
+on:
+  push:
+    branches: [halaqa-final-v3-build-20260801]
+    paths:
+      - 'halaqa-final-301/**'
+      - '.github/workflows/build-halaqa-final-301.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Ensure Android SDK 35
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Restore source and signing key
+        run: |
+          cat halaqa-final-301/source.part.* | base64 --decode > source.zip
+          echo 'bfe9ac39aaf9b9ff977a991832031fa9df3231823e16b6c2969b627c4948867e  source.zip' | sha256sum -c -
+          unzip -q source.zip
+          mkdir -p "$HOME/.android"
+          cat halaqa-final-301/key.part.* | base64 --decode > "$HOME/.android/debug.keystore"
+          echo "f13409cbe227b94e6a24ebaa1aee1748dab8f61ffd0439c7f0b02474cc1b47ca  $HOME/.android/debug.keystore" | sha256sum -c -
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey
+          test -f halaqa_apk_project/app/src/main/assets/index.html
+          grep -q "FINAL_VERSION='3.0.1'" halaqa_apk_project/app/src/main/assets/index.html
+          grep -q 'AndroidApp.printHtml' halaqa_apk_project/app/src/main/assets/index.html
+
+      - name: Build signed APK
+        run: gradle -p halaqa_apk_project --no-daemon --stacktrace assembleRelease
+
+      - name: Prepare output
+        run: |
+          mkdir -p output
+          cp halaqa_apk_project/app/build/outputs/apk/release/app-release.apk output/halaqa-followup-3.0.1.apk
+          sha256sum output/halaqa-followup-3.0.1.apk > output/SHA256.txt
+          keytool -printcert -jarfile output/halaqa-followup-3.0.1.apk > output/SIGNING_CERT.txt
+          cat > output/UPDATE_INFO.txt <<'INFO'
+          Package: com.halaqa.followup
+          Version: 3.0.1
+          Version code: 11
+          PDF export prints the exact standalone preview document.
+          INFO
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: halaqa-final-3-0-1-apk
+          path: output/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record successful run id
+        run: |
+          mkdir -p halaqa-final-output
+          echo "$GITHUB_RUN_ID" > halaqa-final-output/LAST_RUN_ID_301.txt
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add halaqa-final-output/LAST_RUN_ID_301.txt
+          git commit -m "Record Halaqa 3.0.1 build run $GITHUB_RUN_ID" || true
+          git push
