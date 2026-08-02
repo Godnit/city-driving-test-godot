@@ -1,0 +1,95 @@
+دير</th><th>الدرجة</th><th>الحالة</th>';
+    heads+='<th>النهائي</th>';
+    const span=(state.session==='both'?9:5);
+    const rows=w.rows.map(r=>{
+      if(r.holiday)return `<tr><td>${r.dayName}<br>${hijriShort(dateFromISO(r.date))}</td><td colspan="${span-1}">${safe(r.holidayText)}</td><td>—</td></tr>`;
+      let c=`<td>${r.dayName}<br>${hijriShort(dateFromISO(r.date))}</td>`;
+      if(state.session!=='review')c+=`<td class="detail">${detail(r.mem.r)}</td><td>${gradeName(r.mem.r)}</td><td>${num(r.mem.grade)}</td><td class="status">${safe(status(r.mem.a))}</td>`;
+      if(state.session!=='memorization')c+=`<td class="detail">${detail(r.rev.r)}</td><td>${gradeName(r.rev.r)}</td><td>${num(r.rev.grade)}</td><td class="status">${safe(status(r.rev.a))}</td>`;
+      c+=`<td>${num(r.net)}</td>`;return `<tr>${c}</tr>`;
+    }).join('');
+    return `<table class="fx-table" data-table-kind="comprehensive"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody><tfoot><tr><td>الإجمالي</td><td colspan="${state.session==='both'?8:4}">الدرجات ${num(w.gradeTotal)} - الخصومات ${num(w.deduction)}</td><td>${num(w.net)}</td></tr></tfoot></table>`;
+  }
+  function weekBlock(w,index,state){return `<section class="fx-week-block" data-week-index="${index}"><div class="fx-week-head"><span>${WEEK_NAMES[index]}</span><span>${hijriDateLabel(w.start)} - ${hijriDateLabel(addDays(w.start,4))}</span></div>${state.content==='grades'?gradesWeekTable(w,state):comprehensiveWeekTable(w,state)}</section>`}
+  function notes(studentId,dates,state){
+    if(state.content==='grades')return'';const ks=new Set(sessionKinds(state));const rows=(db.notes||[]).filter(n=>n.studentId===studentId&&dates.includes(n.date)&&ks.has(normalizeKind(n.kind))).sort((a,b)=>a.date.localeCompare(b.date));
+    return rows.length?`<section class="fx-section"><h2>ملاحظات المعلم</h2><div class="fx-notes">${rows.map(n=>`<div class="fx-note"><b>${safe(NOTE_TAGS[n.tag]?.label||'ملاحظة')} - ${hijriDateLabel(dateFromISO(n.date))} - ${normalizeKind(n.kind)==='review'?'المراجعة':'الحفظ'}</b><div>${safe(n.text)}</div></div>`).join('')}</div></section>`:'';
+  }
+  function retries(studentId,state){
+    if(state.content==='grades')return'';const ks=new Set(sessionKinds(state));const rows=pendingRetries(studentId).filter(r=>ks.has(normalizeKind(r.kind))).slice(0,12);
+    return rows.length?`<section class="fx-section"><h2>المقادير المطلوبة للإعادة</h2><div class="fx-retries">${rows.map(r=>`<span class="fx-retry">${normalizeKind(r.kind)==='review'?'مراجعة':'حفظ'} - ${safe(recitationAmount(r))}</span>`).join('')}</div></section>`:'';
+  }
+  function footer(page=1,total=1){return `<footer class="fx-footer"><span>تاريخ الإصدار: ${hijriDateLabel(new Date())}</span><span class="fx-signature">توقيع معلم الحلقة: ${safe(teacher())}</span><span>صفحة ${num(page)} من ${num(total)}</span></footer>`}
+
+  function singleWeekly(student,state){
+    const w=filteredWeek(student.id,state.week,state);const title=`${contentLabel(state)} الأسبوعي - ${WEEK_NAMES[state.week]} - للطالب: ${student.name}`;
+    const body=head(title,state,student)+summary(w,state)+`<section class="fx-section"><h2>${state.content==='grades'?'درجات أيام الأسبوع':'التفاصيل اليومية الكاملة'}</h2>${state.content==='grades'?gradesWeekTable(w,state):comprehensiveWeekTable(w,state)}</section>${notes(student.id,w.dates,state)}${retries(student.id,state)}${footer()}`;
+    return `<article class="fx-report" data-content="${state.content}" data-period="weekly" data-week="${state.week}" data-scope="single"><section class="fx-page">${body}</section></article>`;
+  }
+  function monthSummaryTable(m,state){
+    let h='<th>الأسبوع</th>';if(state.session!=='review')h+='<th>الحفظ</th>';if(state.session!=='memorization')h+='<th>المراجعة</th>';h+='<th>مجموع الدرجات</th><th>الخصومات</th><th>النهائي</th><th>الحضور</th><th>الغياب</th>';
+    const rows=m.weeks.map((w,i)=>{let c=`<td>${WEEK_NAMES[i]}</td>`;if(state.session!=='review')c+=`<td>${num(w.memGrade)}</td>`;if(state.session!=='memorization')c+=`<td>${num(w.revGrade)}</td>`;c+=`<td>${num(w.gradeTotal)}</td><td>${num(w.deduction)}</td><td>${num(w.net)}</td><td>${num(w.attendance)}</td><td>${num(w.absences)}</td>`;return `<tr>${c}</tr>`}).join('');
+    let f='<td>الإجمالي</td>';if(state.session!=='review')f+=`<td>${num(m.memGrade)}</td>`;if(state.session!=='memorization')f+=`<td>${num(m.revGrade)}</td>`;f+=`<td>${num(m.gradeTotal)}</td><td>${num(m.deduction)}</td><td>${num(m.net)}</td><td>${num(m.attendance)}</td><td>${num(m.absences)}</td>`;
+    return `<table class="fx-table" data-table-kind="monthly-summary"><thead><tr>${h}</tr></thead><tbody>${rows}</tbody><tfoot><tr>${f}</tr></tfoot></table>`;
+  }
+  function singleMonthly(student,state){
+    const m=filteredMonth(student.id,state);const title=`${contentLabel(state)} الشهري للطالب: ${student.name}`;
+    if(state.content==='grades')return `<article class="fx-report" data-content="grades" data-period="monthly" data-scope="single"><section class="fx-page">${head(title,state,student)}${summary(m,state)}<section class="fx-section"><h2>درجات الأسابيع والنتيجة النهائية</h2>${monthSummaryTable(m,state)}</section><div class="fx-difference-note">هذا تقرير درجات فقط: لا يحتوي أسماء السور أو الآيات أو الملاحظات أو قائمة الإعادة.</div>${footer()}</section></article>`;
+    const dates=m.weeks.flatMap(w=>w.dates),hasExtra=Boolean(notes(student.id,dates,state)||retries(student.id,state));const total=hasExtra?3:2;
+    const p1=`<section class="fx-page">${head(title,state,student)}${summary(m,state)}<section class="fx-section"><h2>ملخص درجات الأسابيع</h2>${monthSummaryTable(m,state)}</section>${weekBlock(m.weeks[0],0,state)}${weekBlock(m.weeks[1],1,state)}${footer(1,total)}</section>`;
+    const p2=`<section class="fx-page">${head('تابع '+title,state,student)}${weekBlock(m.weeks[2],2,state)}${weekBlock(m.weeks[3],3,state)}${!hasExtra?footer(2,total):footer(2,total)}</section>`;
+    const p3=hasExtra?`<section class="fx-page">${head('الملاحظات والإعادة - '+student.name,state,student)}${notes(student.id,dates,state)}${retries(student.id,state)}${footer(3,total)}</section>`:'';
+    return `<article class="fx-report" data-content="comprehensive" data-period="monthly" data-scope="single">${p1}${p2}${p3}</article>`;
+  }
+  function allStudents(students,state){
+    const weekly=state.period==='weekly';const title=`${contentLabel(state)} ${weekly?'الأسبوعي - '+WEEK_NAMES[state.week]:'الشهري'} لجميع الطلاب`;
+    let heads='<th>م</th><th>رقم الطالب</th><th>اسم الطالب</th><th>ولي الأمر</th>';
+    if(weekly){if(state.session!=='review')heads+='<th>الحفظ</th>';if(state.session!=='memorization')heads+='<th>المراجعة</th>';heads+='<th>الخصم</th><th>النهائي</th><th>حضور</th><th>غياب</th><th>الحالة</th>'}
+    else{heads+=WEEK_NAMES.map(n=>`<th>${n}</th>`).join('');if(state.session!=='review')heads+='<th>الحفظ</th>';if(state.session!=='memorization')heads+='<th>المراجعة</th>';heads+='<th>الخصم</th><th>النهائي</th><th>ح/غ</th>'}
+    if(state.content==='comprehensive')heads+='<th>آخر تسميع/ملاحظة/إعادة</th>';
+    const rows=students.map((student,i)=>{
+      const st=weekly?filteredWeek(student.id,state.week,state):filteredMonth(student.id,state);let c=`<td>${num(i+1)}</td><td>${safe(student.studentNumber)}</td><td class="name">${safe(student.name)}</td><td>${safe(student.guardianPhone||'—')}</td>`;
+      if(weekly){if(state.session!=='review')c+=`<td>${num(st.memGrade)}</td>`;if(state.session!=='memorization')c+=`<td>${num(st.revGrade)}</td>`;const statuses=[...new Set(st.rows.flatMap(r=>r.selected.map(x=>status(x.a))).filter(x=>x!=='—'&&x!=='حاضر'))];c+=`<td>${num(st.deduction)}</td><td>${num(st.net)}</td><td>${num(st.attendance)}</td><td>${num(st.absences)}</td><td class="status">${safe(statuses.join('، ')||'منتظم')}</td>`}
+      else{st.weeks.forEach(w=>c+=`<td>${num(w.net)}</td>`);if(state.session!=='review')c+=`<td>${num(st.memGrade)}</td>`;if(state.session!=='memorization')c+=`<td>${num(st.revGrade)}</td>`;c+=`<td>${num(st.deduction)}</td><td>${num(st.net)}</td><td>${num(st.attendance)}/${num(st.absences)}</td>`}
+      if(state.content==='comprehensive'){
+        const ks=new Set(sessionKinds(state));const rec=(db.recitations||[]).filter(r=>r.studentId===student.id&&ks.has(normalizeKind(r.kind))&&recitationHasData(r)).sort((a,b)=>b.date.localeCompare(a.date))[0];const note=(db.notes||[]).filter(n=>n.studentId===student.id&&ks.has(normalizeKind(n.kind))).sort((a,b)=>b.date.localeCompare(a.date))[0];const retry=pendingRetries(student.id).filter(r=>ks.has(normalizeKind(r.kind))).length;
+        c+=`<td class="detail">${rec?safe(recitationAmount(rec)):'—'}${note?` - ${safe(note.text.slice(0,34))}`:''}${retry?` - ${num(retry)} إعادة`:''}</td>`;
+      }
+      return `<tr>${c}</tr>`;
+    }).join('');
+    return `<article class="fx-report fx-all" data-content="${state.content}" data-period="${state.period}" data-week="${state.week}" data-scope="all"><section class="fx-page landscape">${head(title,state,null,`عدد الطلاب: ${students.length}`)}<section class="fx-section"><table class="fx-table"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table></section>${state.content==='grades'?'<div class="fx-difference-note">نسخة الدرجات فقط: دون تفاصيل السور والآيات والملاحظات والإعادة.</div>':''}${footer()}</section></article>`;
+  }
+  function build(state){state=normalize(state);const students=state.scope==='all'?sortedStudents():[selectedStudent()].filter(Boolean);if(!students.length)return'';return state.scope==='all'?allStudents(students,state):(state.period==='weekly'?singleWeekly(students[0],state):singleMonthly(students[0],state))}
+  function title(state){const who=state.scope==='all'?'جميع_الطلاب':selectedStudent()?.name||'طالب';return `${contentLabel(state)}_${state.period==='weekly'?WEEK_NAMES[state.week]:'شهري'}_${who}`.replace(/[\\/:*?"<>|]+/g,'_').replace(/\s+/g,'_')}
+  function documentHtml(state,report){
+    const landscape=state.scope==='all';const pageCss=q('#fresh-export-style')?.textContent||'';
+    return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safe(title(state))}</title><style>${pageCss}</style><style>html,body{margin:0!important;padding:0!important;background:#fff!important}.fx-preview-paper{width:auto!important;box-shadow:none!important}@page{size:A4 ${landscape?'landscape':'portrait'};margin:0}</style></head><body>${report}</body></html>`;
+  }
+  function preview(){
+    const state=normalize({...fxState});if(state.scope==='single'&&!selectedStudent())return toast('اختر طالبًا أو اختر جميع الطلاب');
+    const report=build(state);if(!report)return toast('لا توجد بيانات للتقرير');
+    const id=`fx-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;fxSnapshot=Object.freeze({id,state:Object.freeze({...state}),report,title:title(state),document:documentHtml(state,report)});
+    q('#freshPreviewPaper').innerHTML=report;q('#freshPreviewSummary').textContent=`معاينة ثابتة: ${contentLabel(state)} - ${periodLabel(state)} - ${scopeLabel(state)} - ${sessionLabel(state)}`;
+    closeModal('freshExportModal');openModal('freshPreviewModal');
+  }
+  function browserPrint(snapshot){
+    try{sessionStorage.setItem('halaqa_return_after_fx_print','1')}catch(_){}
+    document.open();document.write(snapshot.document);document.close();
+    setTimeout(()=>{try{window.focus();window.print()}catch(_){location.reload()}},450);
+    setTimeout(()=>{window.onafterprint=()=>location.reload()},50);
+  }
+  function save(){
+    if(!fxSnapshot)return toast('أنشئ المعاينة أولًا');const snap=fxSnapshot;
+    const state=snap.state;const fileName=`${snap.title}.pdf`;
+    if(window.AndroidApp&&typeof AndroidApp.saveHtmlAsPdf==='function'){
+      closeModal('freshPreviewModal');toast('اختر مكان حفظ ملف PDF');AndroidApp.saveHtmlAsPdf(fileName,snap.document,state.scope==='all');return;
+    }
+    closeModal('freshPreviewModal');browserPrint(snap);
+  }
+  function inject(){
+    q('#pdfExportModal')?.remove();q('#reportPreviewModal')?.remove();
+    if(q('#freshExportModal'))return;
+    document.body.insertAdjacentHTML('beforeend',`
+      <div id="freshExportModal" class="modal fx-modal" onclick="modalBackdrop(event,'freshExportModal')"><div class="sheet-modal fx-sheet"><div class="modal-head"><h3>تصدير تقرير PDF</h3><button class="close-btn" onclick="closeModal('freshExportModal')">×</button></div>
+      <div class="fx-warning">هذا نظام تصدير جديد مستقل. الاختيارات لا تُقرأ من أي تقرير سابق، وملف PDF يُنشأ من المعاينة نفسها دون إعادة بناء.</div>
+      <div class="fx-step"><div class="fx-step-title">١. محتوى التقرير</div><div class="fx-options"><button class="fx-option" data-fx-group="content" data-fx-value="grades" onclick="FreshExporter.choose('content','grades')"><b>الدرجات فقط</b><small>أرقام الدرجات والخصم والنتيجة والحالة فقط، دون السور والآيات والملاحظات.</small></button><button class="fx-option" data-fx-group="content" data-fx-value="comprehensive" onclick="FreshExporter.choose('content','comprehensive')"><b>تقرير شامل</b>
