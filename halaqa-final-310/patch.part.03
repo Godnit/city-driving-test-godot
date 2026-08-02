@@ -1,0 +1,3 @@
+.replace("versionName '3.0.2'","versionName '3.1.0'")
+gradle.write_text(g)
+print(OUT)
