@@ -1,0 +1,195 @@
+<script id="holiday-grade-hotfix-v311">
+(() => {
+  'use strict';
+  const HOTFIX_VERSION = '3.1.1';
+
+  function kindOf(value) {
+    return normalizeKind(value);
+  }
+
+  function reviewItemsHaveData(record) {
+    return Array.isArray(record?.reviewItems) && record.reviewItems.some(item =>
+      String(item?.startSurah || item?.surah || '').trim() ||
+      String(item?.endSurah || item?.toSurah || '').trim() ||
+      String(item?.from || '').trim() ||
+      String(item?.to || '').trim()
+    );
+  }
+
+  function recordHasData(record) {
+    if (!record) return false;
+    return Boolean(
+      String(record.grade || '').trim() ||
+      String(record.surah || '').trim() ||
+      String(record.from || '').trim() ||
+      String(record.to || '').trim() ||
+      reviewItemsHaveData(record)
+    );
+  }
+
+  function recordWeight(record) {
+    if (!record) return -1;
+    let score = 0;
+    if (String(record.grade || '').trim()) score += 100;
+    if (reviewItemsHaveData(record)) score += 40;
+    if (String(record.surah || '').trim()) score += 12;
+    if (String(record.from || '').trim()) score += 4;
+    if (String(record.to || '').trim()) score += 4;
+    const updated = Date.parse(record.updatedAt || record.createdAt || '') || 0;
+    return score * 1e15 + updated;
+  }
+
+  window.getRecitation = function (studentId, kind, date) {
+    const normalized = kindOf(kind);
+    return (db.recitations || [])
+      .filter(r => r.studentId === studentId && r.date === date && kindOf(r.kind) === normalized)
+      .sort((a, b) => recordWeight(b) - recordWeight(a))[0];
+  };
+
+  window.recitationHasData = function (record) {
+    return recordHasData(record);
+  };
+
+  function safeSessionStats(studentId, date, kind) {
+    const holiday = isHoliday(date);
+    const r = getRecitation(studentId, kind, date) || null;
+    const a = getAttendance(studentId, date, kind) || null;
+    if (holiday) {
+      return { r, a, grade: 0, deduction: 0, net: 0, active: false, attendance: 0, absence: 0 };
+    }
+    const grade = r?.grade ? Number(gradeScore(r.grade) || 0) : 0;
+    const deduction = Number(attendanceDeduction(a) || 0);
+    const active = recordHasData(r) || Boolean(a && (a.present || a.absent || a.excused || a.late || a.trouble)) || getNotesFor(studentId, date, kind).length > 0;
+    return {
+      r, a, grade, deduction,
+      net: Math.max(0, grade - deduction),
+      active,
+      attendance: active && !a?.absent ? 1 : 0,
+      absence: a?.absent ? 1 : 0
+    };
+  }
+
+  window.weekStats = function (studentId, start, kind = null) {
+    const normalizedKind = kind ? kindOf(kind) : null;
+    const dates = Array.from({ length: 5 }, (_, i) => isoDate(addDays(start, i)));
+    let gradeTotal = 0, gradedCount = 0, deduction = 0, attendance = 0, absences = 0, holidayCount = 0;
+    dates.forEach(date => {
+      if (isHoliday(date)) { holidayCount++; return; }
+      const kinds = normalizedKind ? [normalizedKind] : ['memorization', 'review'];
+      kinds.forEach(k => {
+        const st = safeSessionStats(studentId, date, k);
+        if (st.r?.grade) {
+          gradeTotal += st.grade;
+          gradedCount++;
+        }
+        deduction += st.deduction;
+        attendance += st.attendance;
+        absences += st.absence;
+      });
+    });
+    return {
+      gradeTotal,
+      gradedCount,
+      deduction,
+      net: Math.max(0, gradeTotal - deduction),
+      attendance,
+      absences,
+      dates,
+      holidayCount,
+      maxScore: gradedCount * 5
+    };
+  };
+
+  window.updateWeekTotal = function (weekBlock) {
+    if (!weekBlock || !currentStudentId) return;
+    const stat = weekStats(currentStudentId, dateFromISO(weekBlock.dataset.start), sheetKind);
+    const score = weekBlock.querySelector('.weekScore');
+    const breakdown = weekBlock.querySelector('.weekBreakdown');
+    if (score) score.textContent = `${toArabicDigits(stat.net)} / ${toArabicDigits(stat.maxScore)}`;
+    if (breakdown) breakdown.textContent = `الدرجات ${toArabicDigits(stat.gradeTotal)} − الخصومات ${toArabicDigits(stat.deduction)}${stat.holidayCount ? ` — العطلات ${toArabicDigits(stat.holidayCount)}` : ''}`;
+  };
+
+  window.phase2SessionStats = safeSessionStats;
+  window.phase2WeekStats = function (studentId, weekIndex, y = hijriCursor.y, m = hijriCursor.m) {
+    const start = addDays(periodStart(y, m), weekIndex * 7);
+    const dates = Array.from({ length: 5 }, (_, i) => isoDate(addDays(start, i)));
+    const rows = dates.map((date, i) => {
+      const mem = safeSessionStats(studentId, date, 'memorization');
+      const rev = safeSessionStats(studentId, date, 'review');
+      const holiday = isHoliday(date);
+      const grade = holiday ? 0 : mem.grade + rev.grade;
+      const deduction = holiday ? 0 : mem.deduction + rev.deduction;
+      return { date, dayName: DAY_NAMES[i], mem, rev, holiday, holidayText: holidayLabel(date), grade, deduction, net: Math.max(0, grade - deduction) };
+    });
+    const sum = key => rows.reduce((n, r) => n + Number(r[key] || 0), 0);
+    return {
+      start, dates, rows,
+      memGrade: rows.reduce((n, r) => n + r.mem.grade, 0),
+      revGrade: rows.reduce((n, r) => n + r.rev.grade, 0),
+      gradeTotal: sum('grade'), deduction: sum('deduction'), net: sum('net'),
+      attendance: rows.reduce((n, r) => n + r.mem.attendance + r.rev.attendance, 0),
+      absences: rows.reduce((n, r) => n + r.mem.absence + r.rev.absence, 0),
+      holidayCount: rows.filter(r => r.holiday).length
+    };
+  };
+
+  window.phase2MonthStats = function (studentId, y = hijriCursor.y, m = hijriCursor.m) {
+    const weeks = Array.from({ length: 4 }, (_, i) => phase2WeekStats(studentId, i, y, m));
+    const sum = key => weeks.reduce((n, w) => n + Number(w[key] || 0), 0);
+    return { weeks, memGrade: sum('memGrade'), revGrade: sum('revGrade'), gradeTotal: sum('gradeTotal'), deduction: sum('deduction'), net: sum('net'), attendance: sum('attendance'), absences: sum('absences') };
+  };
+
+  function dataCountForDate(date) {
+    return {
+      recitations: (db.recitations || []).filter(r => r.date === date).length,
+      attendance: (db.attendance || []).filter(a => a.date === date).length,
+      notes: (db.notes || []).filter(n => n.date === date).length
+    };
+  }
+
+  window.toggleSuddenHoliday = function (date) {
+    if (isWeeklyHoliday(date)) return toast('هذا اليوم عطلة أسبوعية ويُعدّل من الإعدادات');
+    rememberUndo('العطلة المفاجئة');
+    db.holidays = Array.isArray(db.holidays) ? db.holidays : [];
+    const current = getSuddenHoliday(date);
+    const saved = dataCountForDate(date);
+    if (current) db.holidays = db.holidays.filter(h => h.date !== date);
+    else db.holidays.push({ id: uid(), date, createdAt: new Date().toISOString() });
+    persist();
+    renderSheet();
+    if (document.getElementById('page-quick')?.classList.contains('active')) renderQuick();
+    if (document.getElementById('page-ranking')?.classList.contains('active')) renderRanking();
+    if (document.getElementById('page-report')?.classList.contains('active')) renderReport();
+    const hasSaved = saved.recitations + saved.attendance + saved.notes > 0;
+    toast(current
+      ? 'تم إلغاء العطلة وإعادة احتساب بيانات اليوم المحفوظة'
+      : hasSaved
+        ? 'تم تحديد عطلة مفاجئة. بيانات اليوم محفوظة ولم تُحذف، لكنها مستبعدة من المجموع'
+        : 'تم تحديد اليوم عطلة مفاجئة دون التأثير في درجات الأيام السابقة');
+  };
+
+  const previousDayRow = window.dayRow;
+  window.dayRow = function (date, dayName) {
+    let html = previousDayRow(date, dayName);
+    const iso = isoDate(date);
+    if (isHoliday(iso)) {
+      const rec = getRecitation(currentStudentId, sheetKind, iso);
+      const att = getAttendance(currentStudentId, iso, sheetKind);
+      const hasSaved = recordHasData(rec) || Boolean(att) || getNotesFor(currentStudentId, iso, sheetKind).length > 0;
+      if (hasSaved) html = html.replace('— لا درجات ولا حضور ولا خصومات', '— بيانات اليوم محفوظة، ولا تدخل في المجموع ما دام اليوم عطلة');
+    }
+    return html;
+  };
+
+  setTimeout(() => {
+    try {
+      document.querySelectorAll('.week-block').forEach(updateWeekTotal);
+      const key = 'halaqa_holiday_hotfix_notice_' + HOTFIX_VERSION;
+      if (!localStorage.getItem(key)) {
+        localStorage.setItem(key, '1');
+        toast('تم إصلاح العطلة المفاجئة وحساب مجموع درجات المراجعة');
+      }
+    } catch (_) {}
+  }, 500);
+})();
+</script>
