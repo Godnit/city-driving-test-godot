@@ -1,0 +1,221 @@
+<small>السور والآيات والتقديرات والحالات والملاحظات والإعادة.</small></button></div></div>
+      <div class="fx-step"><div class="fx-step-title">٢. الطلاب</div><div class="fx-options"><button class="fx-option" data-fx-group="scope" data-fx-value="single" onclick="FreshExporter.choose('scope','single')"><b>الطالب الحالي</b><small id="freshCurrentStudent">—</small></button><button class="fx-option" data-fx-group="scope" data-fx-value="all" onclick="FreshExporter.choose('scope','all')"><b>جميع الطلاب</b><small>جدول أفقي منظم يشبه Excel.</small></button></div></div>
+      <div class="fx-step"><div class="fx-step-title">٣. الفترة</div><div class="fx-options"><button class="fx-option" data-fx-group="period" data-fx-value="weekly" onclick="FreshExporter.choose('period','weekly')"><b>أسبوعي</b><small>الأسبوع المحدد وحده فقط.</small></button><button class="fx-option" data-fx-group="period" data-fx-value="monthly" onclick="FreshExporter.choose('period','monthly')"><b>شهري</b><small>الأسابيع الأربعة والنتيجة النهائية.</small></button></div><div id="freshWeekStep" style="margin-top:9px"><div id="freshWeekPicker" class="fx-weeks">${WEEK_NAMES.map((n,i)=>`<button class="fx-week" data-week="${i}" onclick="FreshExporter.chooseWeek(${i})">${n}</button>`).join('')}</div></div></div>
+      <div class="fx-step"><div class="fx-step-title">٤. القسم</div><div class="fx-options three"><button class="fx-option" data-fx-group="session" data-fx-value="both" onclick="FreshExporter.choose('session','both')"><b>الحفظ والمراجعة</b></button><button class="fx-option" data-fx-group="session" data-fx-value="memorization" onclick="FreshExporter.choose('session','memorization')"><b>الحفظ فقط</b></button><button class="fx-option" data-fx-group="session" data-fx-value="review" onclick="FreshExporter.choose('session','review')"><b>المراجعة فقط</b></button></div></div>
+      <div id="freshSelection" class="fx-selection"></div><button class="primary-btn full" onclick="FreshExporter.preview()">إنشاء المعاينة</button></div></div>
+      <div id="freshPreviewModal" class="modal fx-modal" onclick="modalBackdrop(event,'freshPreviewModal')"><div class="sheet-modal fx-preview-sheet"><div class="modal-head"><h3>معاينة التقرير النهائية</h3><button class="close-btn" onclick="closeModal('freshPreviewModal')">×</button></div><div class="fx-preview-toolbar"><button class="primary-btn" onclick="FreshExporter.save()">حفظ ملف PDF</button><button class="secondary-btn" onclick="closeModal('freshPreviewModal');openModal('freshExportModal')">تعديل الاختيارات</button><span id="freshPreviewSummary" class="subtle"></span></div><div class="fx-preview-stage"><div id="freshPreviewPaper" class="fx-preview-paper"></div></div></div></div>`);
+  }
+  window.FreshExporter={open:openFreshExport,choose,chooseWeek,preview,save,build,state:()=>({...fxState}),snapshot:()=>fxSnapshot,setState:s=>{fxState=normalize(s);renderFxControls()}};
+  window.openPdfExportModal=openFreshExport;
+  window.exportPdf=scope=>{openFreshExport();fxState.scope=scope==='all'?'all':'single';renderFxControls()};
+  window.runPdfExport=preview;window.printPreparedReport=save;
+  function init(){inject();const b=q('#page-report .page-title .primary-btn');if(b){b.textContent='تصدير PDF';b.onclick=openFreshExport}try{if(sessionStorage.getItem('halaqa_return_after_fx_print'))sessionStorage.removeItem('halaqa_return_after_fx_print')}catch(_){}}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+})();
+</script>
+'''
+
+# Insert clean exporter before closing body.
+idx=s.rfind('</body>')
+if idx<0: raise RuntimeError('Closing body not found')
+s=s[:idx]+css+'\n'+js+'\n'+s[idx:]
+OUT.write_text(s,encoding='utf-8')
+
+# Copy into Android source.
+android=ROOT/'halaqa_apk_project'
+asset=android/'app/src/main/assets/index.html'
+asset.write_text(s,encoding='utf-8')
+
+# Rewrite MainActivity with direct HTML -> PDF creation using PrintDocumentAdapter.onWrite.
+java=android/'app/src/main/java/com/halaqa/followup/MainActivity.java'
+j=java.read_text(encoding='utf-8')
+j=j.replace('import android.app.Activity;','import android.app.Activity;\nimport android.os.CancellationSignal;\nimport android.os.ParcelFileDescriptor;\nimport android.print.PageRange;\nimport android.print.PrintDocumentInfo;\nimport android.widget.FrameLayout;')
+j=j.replace('    private static final int REQUEST_SAVE_FILE = 1002;','    private static final int REQUEST_SAVE_FILE = 1002;\n    private static final int REQUEST_SAVE_PDF = 1003;')
+j=j.replace('    private WebView webView;','    private FrameLayout rootLayout;\n    private WebView webView;')
+j=j.replace('    private boolean printActivityStarted = false;','    private boolean printActivityStarted = false;\n    private String pendingPdfName = "report.pdf";\n    private String pendingPdfHtml = "";\n    private boolean pendingPdfLandscape = false;\n    private ParcelFileDescriptor pendingPdfDescriptor;')
+old='''        webView = new WebView(this);
+        webView.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        webView.setBackgroundColor(Color.parseColor("#EDF4F2"));
+        setContentView(webView);'''
+new='''        rootLayout = new FrameLayout(this);
+        webView = new WebView(this);
+        webView.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        webView.setBackgroundColor(Color.parseColor("#EDF4F2"));
+        rootLayout.addView(webView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        setContentView(rootLayout);'''
+if old not in j: raise RuntimeError('Main WebView creation block not found')
+j=j.replace(old,new)
+# Add bridge method before appVersion.
+marker='''        @JavascriptInterface
+        public String appVersion() {
+            return "3.0.2";
+        }'''
+bridge='''        @JavascriptInterface
+        public void saveHtmlAsPdf(String fileName, String html, boolean landscape) {
+            pendingPdfName = sanitizePdfName(fileName);
+            pendingPdfHtml = (html == null || html.trim().isEmpty())
+                    ? "<html dir='rtl'><body>لا توجد بيانات للتقرير</body></html>" : html;
+            pendingPdfLandscape = landscape;
+            runOnUiThread(() -> {
+                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("application/pdf");
+                intent.putExtra(Intent.EXTRA_TITLE, pendingPdfName);
+                try {
+                    startActivityForResult(intent, REQUEST_SAVE_PDF);
+                } catch (Exception ex) {
+                    Toast.makeText(MainActivity.this, "تعذر فتح نافذة حفظ PDF", Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public String appVersion() {
+            return "3.1.0";
+        }'''
+if marker not in j: raise RuntimeError('appVersion marker not found')
+j=j.replace(marker,bridge)
+# Add direct PDF functions before restoreAppAfterHtmlPrint.
+marker2='''    private void restoreAppAfterHtmlPrint() {'''
+helpers=r'''    private void createPdfAtUri(Uri uri) {
+        destroyPrintWebView();
+        try {
+            pendingPdfDescriptor = getContentResolver().openFileDescriptor(uri, "w");
+            if (pendingPdfDescriptor == null) throw new IllegalStateException("No PDF descriptor");
+
+            printWebView = new WebView(this);
+            WebSettings ps = printWebView.getSettings();
+            ps.setJavaScriptEnabled(true);
+            ps.setDomStorageEnabled(true);
+            ps.setDefaultTextEncodingName("UTF-8");
+            printWebView.setBackgroundColor(Color.WHITE);
+            printWebView.setAlpha(0.01f);
+            printWebView.setTranslationX(-10000f);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+            );
+            rootLayout.addView(printWebView, 0, lp);
+
+            printWebView.setWebViewClient(new WebViewClient() {
+                private boolean started = false;
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    if (started) return;
+                    started = true;
+                    view.postDelayed(() -> writeAttachedWebViewPdf(view), 550);
+                }
+            });
+            printWebView.loadDataWithBaseURL(
+                    "https://halaqa.local/direct-pdf-v310/",
+                    pendingPdfHtml,
+                    "text/html",
+                    "UTF-8",
+                    null
+            );
+        } catch (Exception ex) {
+            finishDirectPdf(false, "تعذر تجهيز ملف PDF");
+        }
+    }
+
+    private void writeAttachedWebViewPdf(WebView source) {
+        try {
+            PrintDocumentAdapter adapter = source.createPrintDocumentAdapter(pendingPdfName);
+            PrintAttributes.MediaSize media = pendingPdfLandscape
+                    ? PrintAttributes.MediaSize.ISO_A4.asLandscape()
+                    : PrintAttributes.MediaSize.ISO_A4.asPortrait();
+            PrintAttributes attributes = new PrintAttributes.Builder()
+                    .setMediaSize(media)
+                    .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
+                    .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+                    .setResolution(new PrintAttributes.Resolution("halaqa_pdf", "Halaqa PDF", 300, 300))
+                    .build();
+            CancellationSignal signal = new CancellationSignal();
+            adapter.onLayout(null, attributes, signal, new PrintDocumentAdapter.LayoutResultCallback() {
+                @Override
+                public void onLayoutFinished(PrintDocumentInfo info, boolean changed) {
+                    adapter.onWrite(new PageRange[]{PageRange.ALL_PAGES}, pendingPdfDescriptor, signal,
+                            new PrintDocumentAdapter.WriteResultCallback() {
+                                @Override
+                                public void onWriteFinished(PageRange[] pages) {
+                                    adapter.onFinish();
+                                    finishDirectPdf(true, "تم حفظ تقرير PDF");
+                                }
+                                @Override
+                                public void onWriteFailed(CharSequence error) {
+                                    adapter.onFinish();
+                                    finishDirectPdf(false, "تعذر إنشاء ملف PDF");
+                                }
+                                @Override
+                                public void onWriteCancelled() {
+                                    adapter.onFinish();
+                                    finishDirectPdf(false, "تم إلغاء إنشاء PDF");
+                                }
+                            });
+                }
+                @Override
+                public void onLayoutFailed(CharSequence error) {
+                    adapter.onFinish();
+                    finishDirectPdf(false, "تعذر تنسيق ملف PDF");
+                }
+                @Override
+                public void onLayoutCancelled() {
+                    adapter.onFinish();
+                    finishDirectPdf(false, "تم إلغاء إنشاء PDF");
+                }
+            }, null);
+        } catch (Exception ex) {
+            finishDirectPdf(false, "تعذر إنشاء ملف PDF");
+        }
+    }
+
+    private void finishDirectPdf(boolean success, String message) {
+        try {
+            if (pendingPdfDescriptor != null) pendingPdfDescriptor.close();
+        } catch (Exception ignored) {}
+        pendingPdfDescriptor = null;
+        pendingPdfHtml = "";
+        if (printWebView != null && rootLayout != null) {
+            try { rootLayout.removeView(printWebView); } catch (Exception ignored) {}
+        }
+        destroyPrintWebView();
+        Toast.makeText(this, message, success ? Toast.LENGTH_SHORT : Toast.LENGTH_LONG).show();
+    }
+
+'''
+if marker2 not in j: raise RuntimeError('restore marker missing')
+j=j.replace(marker2,helpers+marker2)
+# Make destroy remove from root and avoid touching old boolean unexpectedly.
+j=j.replace('''        if (printWebView != null) {
+            try {''','''        if (printWebView != null) {
+            try {
+                if (rootLayout != null) rootLayout.removeView(printWebView);''')
+# Add sanitizer.
+j=j.replace('''    private static String sanitizeFileName(String name) {''','''    private static String sanitizePdfName(String name) {
+        String safe = sanitizeFileName(name);
+        return safe.toLowerCase().endsWith(".pdf") ? safe : safe + ".pdf";
+    }
+
+    private static String sanitizeFileName(String name) {''')
+# Handle request code.
+needle='''        if (requestCode == REQUEST_SAVE_FILE) {'''
+pdf_result='''        if (requestCode == REQUEST_SAVE_PDF) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                createPdfAtUri(data.getData());
+            } else {
+                pendingPdfHtml = "";
+                Toast.makeText(this, "تم إلغاء حفظ PDF", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+        if (requestCode == REQUEST_SAVE_FILE) {'''
+if needle not in j: raise RuntimeError('activity result marker missing')
+j=j.replace(needle,pdf_result)
+java.write_text(j,encoding='utf-8')
+
+# Gradle version.
+gradle=android/'app/build.gradle';g=gradle.read_text()
+g=g.replace('versionCode 12','versionCode 13')
