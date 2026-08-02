@@ -29,7 +29,10 @@ css='''
 </style>
 '''
 if 'review-grade-color-fix-v312' not in s:
-    s=s.replace('</body>',css+'</body>')
+    before,sep,after=s.rpartition('</body>')
+    if not sep:
+        raise SystemExit('Closing body tag not found')
+    s=before+css+sep+after
 
 html_path.write_text(s,encoding='utf-8')
 
@@ -40,7 +43,7 @@ build_path.write_text(b,encoding='utf-8')
 
 assert "FINAL_VERSION='3.1.2'" in s
 assert 'ensureReviewItems(r).some' not in s
-assert 'review-grade-color-fix-v312' in s
+assert s.count('review-grade-color-fix-v312')==1
 assert 'versionCode 15' in b
 assert "versionName '3.1.2'" in b
 print('Applied Halaqa 3.1.2 review grade fix')
