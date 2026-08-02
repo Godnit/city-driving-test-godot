@@ -1,0 +1,11 @@
+
+# Remove an obsolete duplicated comprehensive-report fragment left by an earlier split patch.
+html_path = ROOT/'halaqa_apk_project/app/src/main/assets/index.html'
+html_text = html_path.read_text(encoding='utf-8')
+fragment_start = html_text.find('\nدير</th><th>الدرجة</th><th>الحالة</th>\';')
+fragment_end = html_text.find('  function weekBlock(w,index,state)', fragment_start)
+if fragment_start >= 0 and fragment_end > fragment_start:
+    html_text = html_text[:fragment_start] + '\n' + html_text[fragment_end:]
+if '\nدير</th><th>الدرجة</th><th>الحالة</th>\';' in html_text:
+    raise RuntimeError('Obsolete report fragment was not removed')
+html_path.write_text(html_text, encoding='utf-8')
