@@ -1,0 +1,130 @@
+name: Build Halaqa 3.1.1 APK PR
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'halaqa-final-311/**'
+      - '.github/workflows/build-halaqa-final-311-pr.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: SDK
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Restore and patch source
+        run: |
+          cat halaqa-final-301/source.part.* | base64 --decode > source.zip
+          unzip -q source.zip
+          python3 halaqa-final-302/patch_v302.py
+          cat halaqa-final-310/patch.part.* > /tmp/patch_v310.py
+          python3 /tmp/patch_v310.py
+          python3 halaqa-final-311/patch_v311.py
+          python3 - <<'PY'
+          import re,pathlib
+          p=pathlib.Path('halaqa_apk_project/app/src/main/assets/index.html')
+          s=p.read_text(encoding='utf-8')
+          pathlib.Path('/tmp/app.js').write_text('\n;\n'.join(re.findall(r'<script(?:\\s[^>]*)?>(.*?)</script>',s,re.S|re.I)),encoding='utf-8')
+          assert s.count('holiday-grade-hotfix-v311')==1
+          assert "FINAL_VERSION='3.1.1'" in s
+          PY
+          node --check /tmp/app.js
+      - name: Use PdfDocument renderer
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java')
+          j=p.read_text(encoding='utf-8')
+          j=j.replace('import android.graphics.Color;', 'import android.graphics.Color;\nimport android.graphics.pdf.PdfDocument;')
+          j=j.replace('import java.io.InputStream;', 'import java.io.InputStream;\nimport java.io.FileOutputStream;')
+          start=j.index('    private void writeAttachedWebViewPdf(WebView source) {')
+          end=j.index('    private void finishDirectPdf(', start)
+          method=r'''    private void writeAttachedWebViewPdf(WebView source) {
+              PdfDocument document = null;
+              FileOutputStream output = null;
+              try {
+                  final int webWidth = pendingPdfLandscape ? 1123 : 794;
+                  final int pageWidth = pendingPdfLandscape ? 842 : 595;
+                  final int pageHeight = pendingPdfLandscape ? 595 : 842;
+                  source.measure(View.MeasureSpec.makeMeasureSpec(webWidth, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                  int measured = Math.max(source.getMeasuredHeight(), (int) Math.ceil(source.getContentHeight() * Math.max(1f, source.getScale())));
+                  int contentHeight = Math.max(measured, pendingPdfLandscape ? 794 : 1123);
+                  source.layout(0, 0, webWidth, contentHeight);
+                  float scale = pageWidth / (float) webWidth;
+                  float sliceHeight = pageHeight / scale;
+                  int pageCount = Math.max(1, (int) Math.ceil(contentHeight / sliceHeight));
+                  document = new PdfDocument();
+                  for (int i = 0; i < pageCount; i++) {
+                      PdfDocument.Page page = document.startPage(new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, i + 1).create());
+                      page.getCanvas().drawColor(Color.WHITE);
+                      page.getCanvas().save();
+                      page.getCanvas().scale(scale, scale);
+                      page.getCanvas().translate(0f, -i * sliceHeight);
+                      source.draw(page.getCanvas());
+                      page.getCanvas().restore();
+                      document.finishPage(page);
+                  }
+                  output = new FileOutputStream(pendingPdfDescriptor.getFileDescriptor());
+                  document.writeTo(output);
+                  output.flush();
+                  finishDirectPdf(true, "تم حفظ تقرير PDF");
+              } catch (Exception ex) {
+                  finishDirectPdf(false, "تعذر إنشاء ملف PDF");
+              } finally {
+                  try { if (output != null) output.close(); } catch (Exception ignored) {}
+                  try { if (document != null) document.close(); } catch (Exception ignored) {}
+              }
+          }
+
+          '''
+          p.write_text(j[:start]+method+j[end:],encoding='utf-8')
+          PY
+      - name: Sign and build
+        run: |
+          mkdir -p "$HOME/.android"
+          cat halaqa-final-301/key.part.* | base64 --decode > "$HOME/.android/debug.keystore"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('halaqa_apk_project/app/build.gradle');s=p.read_text()
+          block='''android {
+              signingConfigs {
+                  updateRelease {
+                      storeFile file(System.getProperty("user.home") + "/.android/debug.keystore")
+                      storePassword "android"
+                      keyAlias "androiddebugkey"
+                      keyPassword "android"
+                  }
+              }
+          '''
+          s=s.replace('android {\n',block,1).replace('signingConfig signingConfigs.debug','signingConfig signingConfigs.updateRelease')
+          p.write_text(s)
+          PY
+          gradle -p halaqa_apk_project --no-daemon assembleRelease
+      - name: Package
+        run: |
+          mkdir -p output
+          cp halaqa_apk_project/app/build/outputs/apk/release/app-release.apk output/halaqa-followup-3.1.1.apk
+          cp halaqa_apk_project/app/src/main/assets/index.html output/halaqa-followup-3.1.1.html
+          cd halaqa_apk_project && zip -qr ../output/halaqa-followup-3.1.1-source.zip . && cd ..
+          keytool -printcert -jarfile output/halaqa-followup-3.1.1.apk > output/SIGNING_CERT.txt
+          sha256sum output/halaqa-followup-3.1.1.apk > output/SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: halaqa-final-3-1-1-apk
+          path: output/
+          if-no-files-found: error
+          retention-days: 30
