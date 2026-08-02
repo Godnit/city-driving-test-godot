@@ -1,0 +1,13 @@
+
+# Ensure the direct PDF renderer has a robust FileOutputStream import.
+java_path = ROOT/'halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java'
+java_text = java_path.read_text(encoding='utf-8')
+if 'import java.io.FileOutputStream;' not in java_text:
+    java_text = java_text.replace(
+        'public class MainActivity',
+        'import java.io.FileOutputStream;\n\npublic class MainActivity',
+        1
+    )
+if 'import java.io.FileOutputStream;' not in java_text:
+    raise RuntimeError('Could not add FileOutputStream import')
+java_path.write_text(java_text, encoding='utf-8')
