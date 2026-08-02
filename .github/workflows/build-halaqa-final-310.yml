@@ -65,6 +65,69 @@ jobs:
           PY
           node --check /tmp/app.js
 
+      - name: Use PdfDocument renderer
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java')
+          j=p.read_text(encoding='utf-8')
+          j=j.replace('import android.graphics.Color;', 'import android.graphics.Color;\nimport android.graphics.pdf.PdfDocument;')
+          j=j.replace('import java.io.InputStream;', 'import java.io.InputStream;\nimport java.io.FileOutputStream;')
+          start=j.index('    private void writeAttachedWebViewPdf(WebView source) {')
+          end=j.index('    private void finishDirectPdf(', start)
+          method=r'''    private void writeAttachedWebViewPdf(WebView source) {
+              PdfDocument document = null;
+              FileOutputStream output = null;
+              try {
+                  final int webWidth = pendingPdfLandscape ? 1123 : 794;
+                  final int pageWidth = pendingPdfLandscape ? 842 : 595;
+                  final int pageHeight = pendingPdfLandscape ? 595 : 842;
+
+                  int widthSpec = View.MeasureSpec.makeMeasureSpec(webWidth, View.MeasureSpec.EXACTLY);
+                  int heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+                  source.measure(widthSpec, heightSpec);
+                  int measured = Math.max(source.getMeasuredHeight(),
+                          (int) Math.ceil(source.getContentHeight() * Math.max(1f, source.getScale())));
+                  int contentHeight = Math.max(measured, pendingPdfLandscape ? 794 : 1123);
+                  source.layout(0, 0, webWidth, contentHeight);
+
+                  float scale = pageWidth / (float) webWidth;
+                  float sliceHeight = pageHeight / scale;
+                  int pageCount = Math.max(1, (int) Math.ceil(contentHeight / sliceHeight));
+
+                  document = new PdfDocument();
+                  for (int i = 0; i < pageCount; i++) {
+                      PdfDocument.PageInfo info = new PdfDocument.PageInfo.Builder(
+                              pageWidth, pageHeight, i + 1).create();
+                      PdfDocument.Page page = document.startPage(info);
+                      page.getCanvas().drawColor(Color.WHITE);
+                      page.getCanvas().save();
+                      page.getCanvas().scale(scale, scale);
+                      page.getCanvas().translate(0f, -i * sliceHeight);
+                      source.draw(page.getCanvas());
+                      page.getCanvas().restore();
+                      document.finishPage(page);
+                  }
+
+                  output = new FileOutputStream(pendingPdfDescriptor.getFileDescriptor());
+                  document.writeTo(output);
+                  output.flush();
+                  finishDirectPdf(true, "تم حفظ تقرير PDF");
+              } catch (Exception ex) {
+                  finishDirectPdf(false, "تعذر إنشاء ملف PDF");
+              } finally {
+                  try { if (output != null) output.close(); } catch (Exception ignored) {}
+                  try { if (document != null) document.close(); } catch (Exception ignored) {}
+              }
+          }
+
+          '''
+          j=j[:start]+method+j[end:]
+          if 'new PdfDocument()' not in j or 'LayoutResultCallback' in j[j.index('private void writeAttachedWebViewPdf'):j.index('private void finishDirectPdf')]:
+              raise SystemExit('PdfDocument renderer replacement failed')
+          p.write_text(j,encoding='utf-8')
+          PY
+
       - name: Restore signing key
         run: |
           mkdir -p "$HOME/.android"
