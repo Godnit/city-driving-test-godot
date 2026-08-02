@@ -1,0 +1,147 @@
+from pathlib import Path
+import re, shutil, textwrap
+
+ROOT=Path('.')
+SRC=ROOT/'halaqa_apk_project/app/src/main/assets/index.html'
+OUT=SRC
+s=SRC.read_text(encoding='utf-8')
+
+# Remove the old export modal completely. The rest of the app is kept unchanged.
+s, count = re.subn(r'\n<div id="pdfExportModal"[\s\S]*?</div>\n\n<div id="printArea"', '\n<div id="printArea"', s, count=1)
+if count != 1:
+    raise RuntimeError('Old export modal was not found exactly once')
+
+# Bump visible/local version markers.
+s=s.replace("const FINAL_VERSION='3.0.2';", "const FINAL_VERSION='3.1.0';")
+s=s.replace('تم تثبيت الإصدار ٣.٠.٢ — إصلاح التصدير الأسبوعي','تم تثبيت الإصدار ٣.١.٠ — نظام تصدير جديد')
+
+css=r'''
+<style id="fresh-export-style">
+.fx-modal{z-index:1200!important}.fx-sheet{max-width:720px;max-height:94dvh;overflow:auto}.fx-step{border:1px solid var(--line);border-radius:14px;padding:11px;margin-top:10px;background:var(--paper)}
+.fx-step-title{font-weight:900;color:var(--teal-dark);margin-bottom:8px}.fx-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.fx-options.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.fx-option{border:1.5px solid var(--line-dark);background:var(--paper);color:var(--ink);border-radius:12px;padding:10px;text-align:right;min-height:66px}.fx-option b{display:block;font-size:14px}.fx-option small{display:block;color:var(--muted);font-size:10px;line-height:1.55;margin-top:3px}.fx-option.active{background:#dff1ee;border-color:var(--teal);box-shadow:0 0 0 2px rgba(8,105,106,.12)}
+:root[data-theme="dark"] .fx-option.active{background:#17413d}.fx-weeks{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.fx-week{border:1.5px solid var(--line-dark);border-radius:10px;background:var(--paper);color:var(--ink);padding:9px 4px;font-weight:900;font-size:10px}.fx-week.active{background:var(--teal);color:#fff;border-color:var(--teal)}
+.fx-selection{margin:12px 0;border:1.5px solid var(--teal);background:#eaf7f4;color:#084c48;border-radius:12px;padding:10px;font-weight:900;line-height:1.7}.fx-warning{background:#fff7df;border:1px solid #d5ac55;color:#71520d;border-radius:10px;padding:9px;font-size:11px;line-height:1.65}
+:root[data-theme="dark"] .fx-selection{background:#173c38;color:#c7f2eb}:root[data-theme="dark"] .fx-warning{background:#332b16;color:#f1d28c}
+.fx-preview-sheet{width:min(1100px,98vw);max-height:96dvh}.fx-preview-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;position:sticky;top:-16px;background:var(--paper);padding:10px 0;z-index:5;border-bottom:1px solid var(--line)}.fx-preview-stage{background:#d9dfdd;border-radius:13px;padding:12px;overflow:auto;max-height:76dvh}.fx-preview-paper{width:210mm;margin:auto;background:#fff;color:#122;box-shadow:0 8px 28px rgba(0,0,0,.2);direction:rtl}
+.fx-report{font-family:Tahoma,Arial,sans-serif;direction:rtl;color:#152d2e;background:#fff;font-size:9px}.fx-page{box-sizing:border-box;width:210mm;min-height:297mm;padding:9mm;background:#fff;display:flex;flex-direction:column;page-break-after:always;break-after:page}.fx-page:last-child{page-break-after:auto;break-after:auto}.fx-page.landscape{width:297mm;min-height:210mm;padding:7mm}
+.fx-head{border:2px solid #0d6263;padding:8px 10px;text-align:center;margin-bottom:8px;break-inside:avoid}.fx-head h1{font-size:17px;color:#0a4f50;margin:0 0 5px}.fx-head-sub{font-size:9px}.fx-meta{display:flex;justify-content:center;gap:5px;flex-wrap:wrap;margin-top:6px}.fx-meta span{border:1px solid #9bb9b6;background:#f4f8f7;border-radius:999px;padding:3px 7px;font-size:8px}.fx-kind-badge{display:inline-block;background:#0d6263;color:#fff;border-radius:999px;padding:3px 10px;font-size:9px;font-weight:900;margin-bottom:5px}
+.fx-summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px;margin:7px 0;break-inside:avoid}.fx-box{border:1px solid #9bb9b6;padding:6px 3px;text-align:center}.fx-box b{display:block;font-size:15px;color:#0d6263}.fx-box small{font-size:8px}.fx-section{margin:7px 0;break-inside:avoid}.fx-section h2{font-size:12px;margin:0 0 5px;background:#e8f3f1;border-right:5px solid #0d6263;padding:6px 8px}.fx-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8px}.fx-table th,.fx-table td{border:1px solid #89aaa7;padding:3px;text-align:center;vertical-align:middle;overflow-wrap:anywhere}.fx-table th{background:#eef6f4;font-weight:900}.fx-table tfoot td{font-weight:900;background:#e7f2f0}.fx-table .name{text-align:right;font-weight:900}.fx-table .detail{font-size:7.2px;line-height:1.45}.fx-table .status{font-size:7.4px}.fx-week-block{border:1px solid #8dadab;margin:7px 0;break-inside:avoid;page-break-inside:avoid}.fx-week-head{padding:6px 8px;background:#0d6263;color:#fff;font-weight:900;display:flex;justify-content:space-between}.fx-notes{display:grid;gap:4px}.fx-note{border:1px solid #b7c9c7;padding:5px;font-size:8px}.fx-retries{display:flex;gap:4px;flex-wrap:wrap}.fx-retry{border:1px solid #d0a447;background:#fff8df;border-radius:7px;padding:4px 6px;font-size:8px}.fx-footer{margin-top:auto;border-top:1px solid #aac0be;padding-top:6px;display:flex;justify-content:space-between;gap:9px;font-size:8px;color:#465e5d;break-inside:avoid}.fx-signature{min-width:150px;border-top:1px dotted #555;padding-top:4px;text-align:center}.fx-all .fx-table{font-size:7px}.fx-all .fx-table th,.fx-all .fx-table td{padding:2.5px}.fx-empty{padding:20px;text-align:center}.fx-difference-note{border:1px solid #8eb5b1;background:#f5fbfa;padding:7px;margin:6px 0;font-size:8.5px}
+@media(max-width:900px){.fx-preview-paper{zoom:.58}.fx-options.three{grid-template-columns:1fr}.fx-preview-stage{padding:7px}}@media(max-width:520px){.fx-options{grid-template-columns:1fr}.fx-weeks{grid-template-columns:1fr 1fr}.fx-preview-paper{zoom:.405}}
+@media print{html,body{margin:0!important;padding:0!important;background:#fff!important}.fx-report{display:block!important}.fx-page{break-after:page;page-break-after:always}.fx-page:last-child{break-after:auto;page-break-after:auto}.fx-week-block,.fx-section,.fx-table tr{break-inside:avoid-page!important;page-break-inside:avoid!important}.fx-table thead{display:table-header-group}.fx-table tfoot{display:table-footer-group}}
+</style>
+'''
+
+js=r'''
+<script id="fresh-export-system">
+(() => {
+  'use strict';
+  const FX_VERSION='3.1.0';
+  const FX_DEFAULT={content:'grades',scope:'single',period:'weekly',week:0,session:'both'};
+  let fxState={...FX_DEFAULT};
+  let fxSnapshot=null;
+
+  const q=(s,r=document)=>r.querySelector(s);
+  const qa=(s,r=document)=>[...r.querySelectorAll(s)];
+  const safe=(v='')=>esc(v);
+  const num=v=>toArabicDigits(Number(v)||0);
+  const teacher=()=>String(db.settings?.teacherName||'').trim()||'غير مسجل';
+  const circle=()=>String(db.settings?.circleName||'').trim();
+  const sessionKinds=s=>s.session==='memorization'?['memorization']:s.session==='review'?['review']:['memorization','review'];
+  const sessionLabel=s=>s.session==='memorization'?'الحفظ فقط':s.session==='review'?'المراجعة فقط':'الحفظ والمراجعة';
+  const contentLabel=s=>s.content==='grades'?'تقرير الدرجات فقط':'التقرير الشامل';
+  const periodLabel=s=>s.period==='weekly'?`${WEEK_NAMES[s.week]} فقط`:'الشهر كاملًا';
+  const scopeLabel=s=>s.scope==='all'?'جميع الطلاب':`الطالب الحالي: ${selectedStudent()?.name||'—'}`;
+  const normalize=s=>({
+    content:s?.content==='comprehensive'?'comprehensive':'grades',
+    scope:s?.scope==='all'?'all':'single',
+    period:s?.period==='monthly'?'monthly':'weekly',
+    week:Math.max(0,Math.min(3,Math.trunc(Number(s?.week)||0))),
+    session:['memorization','review'].includes(s?.session)?s.session:'both'
+  });
+
+  function currentWeekIndex(){
+    const dates=monthScheduleDates();
+    const today=isoToday();
+    const i=dates.indexOf(today);
+    return i>=0?Math.floor(i/5):0;
+  }
+  function openFreshExport(){
+    if(!db.students.length)return toast('لا يوجد طلاب لتصديرهم');
+    if(!teacher()||teacher()==='غير مسجل')return openTeacherSettings(true);
+    fxState={...FX_DEFAULT,week:currentWeekIndex(),scope:selectedStudent()?'single':'all'};
+    renderFxControls();openModal('freshExportModal');
+  }
+  function choose(group,value){fxState=normalize({...fxState,[group]:value});renderFxControls()}
+  function chooseWeek(i){fxState=normalize({...fxState,period:'weekly',week:i});renderFxControls()}
+  function renderFxControls(){
+    fxState=normalize(fxState);
+    qa('#freshExportModal [data-fx-group]').forEach(b=>b.classList.toggle('active',fxState[b.dataset.fxGroup]===b.dataset.fxValue));
+    qa('#freshWeekPicker [data-week]').forEach(b=>b.classList.toggle('active',Number(b.dataset.week)===fxState.week));
+    q('#freshWeekStep')?.classList.toggle('hidden',fxState.period!=='weekly');
+    const s=q('#freshSelection');if(s)s.textContent=`سيتم إنشاء: ${contentLabel(fxState)} - ${periodLabel(fxState)} - ${scopeLabel(fxState)} - ${sessionLabel(fxState)}`;
+    const studentSmall=q('#freshCurrentStudent');if(studentSmall)studentSmall.textContent=selectedStudent()?.name||'لا يوجد طالب محدد';
+  }
+
+  function status(a){return a?flagsText(a):'—'}
+  function detail(r){
+    if(!r||!recitationHasData(r))return'—';
+    if(normalizeKind(r.kind)==='review')return safe(recitationAmount(r));
+    const amount=recitationAmount(r);return `${r.surah?`سورة ${safe(r.surah)}`:'سورة غير محددة'}${amount&&amount!=='المقدار غير محدد'?` - ${safe(amount)}`:''}`;
+  }
+  function gradeName(r){return r?.grade?safe(GRADES[r.grade]?.label||r.grade):'—'}
+  function filteredWeek(studentId,week,state){
+    const full=phase2WeekStats(studentId,week);const kinds=sessionKinds(state);
+    const rows=full.rows.map(row=>{
+      const selected=kinds.map(k=>k==='memorization'?row.mem:row.rev);
+      const grade=selected.reduce((n,x)=>n+x.grade,0),deduction=selected.reduce((n,x)=>n+x.deduction,0);
+      return {...row,selected,grade,deduction,net:Math.max(0,grade-deduction),attendance:selected.reduce((n,x)=>n+x.attendance,0),absences:selected.reduce((n,x)=>n+x.absence,0)};
+    });
+    const sum=k=>rows.reduce((n,r)=>n+r[k],0);
+    return {...full,rows,gradeTotal:sum('grade'),deduction:sum('deduction'),net:sum('net'),attendance:sum('attendance'),absences:sum('absences'),memGrade:state.session==='review'?0:rows.reduce((n,r)=>n+r.mem.grade,0),revGrade:state.session==='memorization'?0:rows.reduce((n,r)=>n+r.rev.grade,0)};
+  }
+  function filteredMonth(studentId,state){const weeks=[0,1,2,3].map(i=>filteredWeek(studentId,i,state));const sum=k=>weeks.reduce((n,w)=>n+w[k],0);return{weeks,gradeTotal:sum('gradeTotal'),deduction:sum('deduction'),net:sum('net'),attendance:sum('attendance'),absences:sum('absences'),memGrade:sum('memGrade'),revGrade:sum('revGrade')}}
+  function meta(state,student,extra=''){
+    const arr=[`معلم الحلقة: ${teacher()}`,circle()?`الحلقة: ${circle()}`:'',student?`رقم الطالب: ${student.studentNumber}`:'',student?`رقم ولي الأمر: ${student.guardianPhone||'غير مسجل'}`:'',`الشهر: ${hijriMonthLabel(hijriCursor.y,hijriCursor.m)}`,extra].filter(Boolean);
+    return `<div class="fx-meta">${arr.map(x=>`<span>${safe(x)}</span>`).join('')}</div>`;
+  }
+  function head(title,state,student,extra=''){
+    return `<header class="fx-head"><div class="fx-kind-badge">${contentLabel(state)}</div><h1>${safe(title)}</h1><div class="fx-head-sub">${safe(periodLabel(state))} - ${safe(sessionLabel(state))}</div>${meta(state,student,extra)}</header>`;
+  }
+  function summary(st,state){
+    const boxes=[];
+    if(state.session!=='review')boxes.push([st.memGrade,'درجات الحفظ']);
+    if(state.session!=='memorization')boxes.push([st.revGrade,'درجات المراجعة']);
+    boxes.push([st.gradeTotal,'مجموع الدرجات'],[st.deduction,'الخصومات'],[st.net,'الدرجة النهائية'],[st.attendance,'الحضور'],[st.absences,'الغياب']);
+    return `<div class="fx-summary" style="grid-template-columns:repeat(${Math.min(6,boxes.length)},minmax(0,1fr))">${boxes.map(([v,l])=>`<div class="fx-box"><b>${num(v)}</b><small>${l}</small></div>`).join('')}</div>`;
+  }
+  function gradesWeekTable(w,state){
+    let heads='<th>اليوم والتاريخ</th>';
+    if(state.session!=='review')heads+='<th>درجة الحفظ</th><th>حالة الحفظ</th>';
+    if(state.session!=='memorization')heads+='<th>درجة المراجعة</th><th>حالة المراجعة</th>';
+    heads+='<th>الخصم</th><th>النهائي</th>';
+    const rows=w.rows.map(r=>{
+      if(r.holiday)return `<tr><td>${r.dayName}<br>${hijriShort(dateFromISO(r.date))}</td><td colspan="${(state.session==='both'?6:4)-1}">${safe(r.holidayText)}</td><td>—</td></tr>`;
+      let c=`<td>${r.dayName}<br>${hijriShort(dateFromISO(r.date))}</td>`;
+      if(state.session!=='review')c+=`<td>${num(r.mem.grade)}</td><td class="status">${safe(status(r.mem.a))}</td>`;
+      if(state.session!=='memorization')c+=`<td>${num(r.rev.grade)}</td><td class="status">${safe(status(r.rev.a))}</td>`;
+      c+=`<td>${num(r.deduction)}</td><td>${num(r.net)}</td>`;return `<tr>${c}</tr>`;
+    }).join('');
+    return `<table class="fx-table" data-table-kind="grades"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody><tfoot><tr><td>الإجمالي</td><td colspan="${state.session==='both'?4:2}">الدرجات ${num(w.gradeTotal)} - الخصومات ${num(w.deduction)}</td><td colspan="2">${num(w.net)}</td></tr></tfoot></table>`;
+  }
+  function comprehensiveWeekTable(w,state){
+    let heads='<th>اليوم والتاريخ</th>';
+    if(state.session!=='review')heads+='<th>تفاصيل الحفظ</th><th>التقدير</th><th>الدرجة</th><th>الحالة</th>';
+    if(state.session!=='memorization')heads+='<th>تفاصيل المراجعة</th><th>التقدير</th><th>الدرجة</th><th>الحالة</th>';
+    heads+='<th>الخصم</th><th>النهائي</th>';
+    const rows=w.rows.map(r=>{let c=`<td>${r.dayName}<br>${hijriShort(dateFromISO(r.date))}</td>`;if(r.holiday)return `<tr>${c}<td colspan="${state.session==='both'?9:5}">${safe(r.holidayText)}</td></tr>`;if(state.session!=='review')c+=`<td class="detail">${detail(r.mem.r)}</td><td>${gradeName(r.mem.r)}</td><td>${num(r.mem.grade)}</td><td class="status">${safe(status(r.mem.a))}</td>`;if(state.session!=='memorization')c+=`<td class="detail">${detail(r.rev.r)}</td><td>${gradeName(r.rev.r)}</td><td>${num(r.rev.grade)}</td><td class="status">${safe(status(r.rev.a))}</td>`;c+=`<td>${num(r.deduction)}</td><td>${num(r.net)}</td>`;return `<tr>${c}</tr>`}).join('');
+    return `<table class="fx-table" data-table-kind="comprehensive"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody><tfoot><tr><td>الإجمالي</td><td colspan="${state.session==='both'?8:4}">الدرجات ${num(w.gradeTotal)} - الخصومات ${num(w.deduction)}</td><td>${num(w.net)}</td></tr></tfoot></table>`;
+  }
+  function weekBlock(w,i,state){return `<section class="fx-week-block" data-week-index="${i}"><div class="fx-week-head"><span>${WEEK_NAMES[i]}</span><span>${weekRange(i)}</span></div>${state.content==='grades'?gradesWeekTable(w,state):comprehensiveWeekTable(w,state)}</section>`}
+  function studentNotes(student,state){
+    if(state.content!=='comprehensive')return'';
+    const kinds=sessionKinds(state),dates=state.period==='weekly'?weekDates(state.week):monthScheduleDates();
+    const notes=[];dates.forEach(d=>kinds.forEach(k=>{const rec=getStudentDayRecord(student.id,d,k);(rec.notes||[]).forEach(n=>notes.push(`<div class="fx-note"><b>${safe(k==='review'?'المراجعة':'الحفظ')} - ${safe(d)}</b><br>${safe(n.text||n)}</div>`))}));
+    const retries=[];(student.retries||[]).filter(r=>!r.done&&kinds.includes(normalizeKind(r.kind))).forEach(r=>retries.push(`<span class="fx-retry">${safe(r.kind==='review'?'مراجعة':'حفظ')}: ${safe(r.surah||'—')} ${safe(r.from||'')} ${safe(r.to?`إلى ${r.to}`:'')}</span>`));
+    return `${notes.length?`<section class="fx-section"><h2>ملاحظات المعلم</h2><div class="fx-notes">${notes.join('')}</div></section>`:''}${retries.length?`<section class="fx-section"><h2>المقادير المطلوبة للإعادة</h2><div class="fx-retries">${retries.join('')}</div></section>`:''}`;
+  }
