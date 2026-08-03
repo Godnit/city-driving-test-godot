@@ -9,7 +9,48 @@ java_path = root / 'app/src/main/java/com/halaqa/followup/MainActivity.java'
 html = html_path.read_text(encoding='utf-8')
 html = html.replace("const FINAL_VERSION='3.1.5'", "const FINAL_VERSION='3.1.6'")
 html = html.replace("const FX_VERSION='3.1.5'", "const FX_VERSION='3.1.6'")
-html = html.replace('تم تثبيت الإصدار ٣.١.٥ — الوضع الليلي المتكامل', 'تم تثبيت الإصدار ٣.١.٦ — إصلاح صفحات PDF داخل التطبيق')
+html = html.replace('تم تثبيت الإصدار ٣.١.٥ — الوضع الليلي المتكامل', 'تم تثبيت الإصدار ٣.١.٦ — إصلاح PDF داخل التطبيق')
+
+old_save = """    if(window.AndroidApp&&typeof AndroidApp.saveHtmlAsPdf==='function'){
+      closeModal('freshPreviewModal');toast('اختر مكان حفظ ملف PDF');
+      AndroidApp.saveHtmlAsPdf(fileName(snapshot),snapshot.document,snapshot.state?.scope==='all');return;
+    }
+    const button=$('#freshPreviewModal .primary-btn'),old=button?.textContent;
+    try{
+      if(button){button.disabled=true;button.textContent='جارٍ إنشاء ملف PDF…'}
+      const blob=await buildBlob(snapshot),url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download=fileName(snapshot);a.style.display='none';document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),20000);
+      toast('تم إنشاء ملف PDF المطابق للمعاينة');
+    }catch(error){console.error(error);toast(error?.message||'تعذر إنشاء ملف PDF')}
+    finally{if(button){button.disabled=false;button.textContent=old||'إنشاء ملف PDF مباشر'}}
+"""
+new_save = """    const button=$('#freshPreviewModal .primary-btn'),old=button?.textContent;
+    try{
+      if(button){button.disabled=true;button.textContent='جارٍ إنشاء ملف PDF…'}
+      const blob=await buildBlob(snapshot);
+      if(window.AndroidApp&&typeof AndroidApp.saveBase64File==='function'){
+        const base64=await new Promise((resolve,reject)=>{
+          const reader=new FileReader();
+          reader.onerror=()=>reject(reader.error||new Error('تعذر تجهيز ملف PDF'));
+          reader.onload=()=>resolve(String(reader.result||'').split(',')[1]||'');
+          reader.readAsDataURL(blob);
+        });
+        if(!base64)throw new Error('تعذر تجهيز بيانات ملف PDF');
+        closeModal('freshPreviewModal');toast('اختر مكان حفظ ملف PDF');
+        AndroidApp.saveBase64File(fileName(snapshot),base64,'application/pdf');
+        return;
+      }
+      const url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download=fileName(snapshot);a.style.display='none';document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),20000);
+      toast('تم إنشاء ملف PDF المطابق للمعاينة');
+    }catch(error){console.error(error);toast(error?.message||'تعذر إنشاء ملف PDF')}
+    finally{if(button){button.disabled=false;button.textContent=old||'إنشاء ملف PDF مباشر'}}
+"""
+if old_save not in html:
+    raise SystemExit('Direct PDF save block not found')
+html = html.replace(old_save, new_save, 1)
 html_path.write_text(html, encoding='utf-8')
 
 build = build_path.read_text(encoding='utf-8')
@@ -18,156 +59,90 @@ build = re.sub(r"versionName\s+'[^']+'", "versionName '3.1.6'", build)
 build_path.write_text(build, encoding='utf-8')
 
 java = java_path.read_text(encoding='utf-8')
-java = java.replace('import android.graphics.pdf.PdfDocument;\n', '')
-java = java.replace('import java.io.FileOutputStream;\n', '')
-java = java.replace('    private ParcelFileDescriptor pendingPdfDescriptor;\n', '''    private ParcelFileDescriptor pendingPdfDescriptor;
-    private PrintDocumentAdapter pendingPdfAdapter;
-    private CancellationSignal pendingPdfCancellation;
-    private boolean pendingPdfFinished = false;
-''')
-java = java.replace('            return "3.1.3";', '            return "3.1.6";')
-java = java.replace('            pendingPdfDescriptor = getContentResolver().openFileDescriptor(uri, "w");', '''            pendingPdfFinished = false;
-            pendingPdfDescriptor = getContentResolver().openFileDescriptor(uri, "w");''')
-java = java.replace('            ps.setDefaultTextEncodingName("UTF-8");', '''            ps.setDefaultTextEncodingName("UTF-8");
-            ps.setUseWideViewPort(true);
-            ps.setLoadWithOverviewMode(true);
-            ps.setTextZoom(100);''')
-java = java.replace('                    view.postDelayed(() -> writeAttachedWebViewPdf(view), 550);', '''                    view.evaluateJavascript(
-                            "(document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve()).then(()=>true)",
-                            value -> view.postDelayed(() -> writeAttachedWebViewPdf(view), 260)
-                    );''')
+if 'import android.util.Base64;' not in java:
+    java = java.replace('import android.provider.Settings;', 'import android.provider.Settings;\nimport android.util.Base64;')
 
-start = java.index('    private void writeAttachedWebViewPdf(WebView source) {')
-end = java.index('    private void finishDirectPdf(', start)
-method = r'''    // Android PDF engine v3.1.6: use WebView's print adapter directly.
-    // Chromium now paginates the exact HTML/CSS at A4 size instead of drawing
-    // one long phone-width bitmap and cutting it into arbitrary slices.
-    private void writeAttachedWebViewPdf(WebView source) {
-        try {
-            if (pendingPdfDescriptor == null) {
-                finishDirectPdf(false, "تعذر الوصول إلى ملف PDF");
+anchor = '''        @JavascriptInterface
+        public void printPage(String jobName) {'''
+method = '''        @JavascriptInterface
+        public void saveBase64File(String fileName, String base64Content, String mimeType) {
+            try {
+                pendingSaveName = sanitizeFileName(fileName);
+                pendingSaveMime = (mimeType == null || mimeType.isEmpty())
+                        ? "application/octet-stream" : mimeType;
+                pendingSaveBytes = Base64.decode(
+                        base64Content == null ? "" : base64Content,
+                        Base64.DEFAULT
+                );
+            } catch (Exception ex) {
+                pendingSaveBytes = null;
+                runOnUiThread(() -> Toast.makeText(
+                        MainActivity.this,
+                        "تعذر تجهيز الملف للحفظ",
+                        Toast.LENGTH_LONG
+                ).show());
                 return;
             }
+            runOnUiThread(() -> {
+                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType(pendingSaveMime);
+                intent.putExtra(Intent.EXTRA_TITLE, pendingSaveName);
+                try {
+                    startActivityForResult(intent, REQUEST_SAVE_FILE);
+                } catch (Exception ex) {
+                    pendingSaveBytes = null;
+                    Toast.makeText(
+                            MainActivity.this,
+                            "تعذر فتح نافذة الحفظ",
+                            Toast.LENGTH_LONG
+                    ).show();
+                }
+            });
+        }
 
-            PrintAttributes.MediaSize mediaSize = pendingPdfLandscape
-                    ? PrintAttributes.MediaSize.ISO_A4.asLandscape()
-                    : PrintAttributes.MediaSize.ISO_A4.asPortrait();
+'''
+if 'public void saveBase64File(' not in java:
+    if anchor not in java:
+        raise SystemExit('Java bridge insertion anchor missing')
+    java = java.replace(anchor, method + anchor, 1)
 
-            PrintAttributes attributes = new PrintAttributes.Builder()
-                    .setMediaSize(mediaSize)
-                    .setResolution(new PrintAttributes.Resolution(
-                            "halaqa_pdf_600", "Halaqa PDF 600dpi", 600, 600))
-                    .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
-                    .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
-                    .build();
+java = java.replace('            return "3.1.3";', '            return "3.1.6";')
+old_toast = '                    Toast.makeText(this, "تم حفظ النسخة الاحتياطية", Toast.LENGTH_SHORT).show();'
+new_toast = '''                    String savedMessage = "application/pdf".equals(pendingSaveMime)
+                            ? "تم حفظ ملف PDF كاملًا"
+                            : "تم حفظ الملف";
+                    Toast.makeText(this, savedMessage, Toast.LENGTH_SHORT).show();'''
+if old_toast not in java:
+    raise SystemExit('Save result message anchor missing')
+java = java.replace(old_toast, new_toast, 1)
 
-            pendingPdfCancellation = new CancellationSignal();
-            pendingPdfAdapter = source.createPrintDocumentAdapter(pendingPdfName);
-            Bundle extras = new Bundle();
-
-            pendingPdfAdapter.onLayout(
-                    attributes,
-                    attributes,
-                    pendingPdfCancellation,
-                    new PrintDocumentAdapter.LayoutResultCallback() {
-                        @Override
-                        public void onLayoutFinished(PrintDocumentInfo info, boolean changed) {
-                            if (info == null || pendingPdfAdapter == null || pendingPdfDescriptor == null) {
-                                runOnUiThread(() -> finishDirectPdf(false, "تعذر تخطيط صفحات PDF"));
-                                return;
-                            }
-                            runOnUiThread(() -> {
-                                try {
-                                    pendingPdfAdapter.onWrite(
-                                            new PageRange[]{PageRange.ALL_PAGES},
-                                            pendingPdfDescriptor,
-                                            pendingPdfCancellation,
-                                            new PrintDocumentAdapter.WriteResultCallback() {
-                                                @Override
-                                                public void onWriteFinished(PageRange[] pages) {
-                                                    runOnUiThread(() -> finishDirectPdf(true, "تم حفظ تقرير PDF كاملًا"));
-                                                }
-
-                                                @Override
-                                                public void onWriteFailed(CharSequence error) {
-                                                    runOnUiThread(() -> finishDirectPdf(false, "تعذر كتابة صفحات PDF"));
-                                                }
-
-                                                @Override
-                                                public void onWriteCancelled() {
-                                                    runOnUiThread(() -> finishDirectPdf(false, "تم إلغاء إنشاء PDF"));
-                                                }
-                                            }
-                                    );
-                                } catch (Exception ex) {
-                                    finishDirectPdf(false, "تعذر إنشاء صفحات PDF");
-                                }
-                            });
-                        }
-
-                        @Override
-                        public void onLayoutFailed(CharSequence error) {
-                            runOnUiThread(() -> finishDirectPdf(false, "تعذر تخطيط صفحات PDF"));
-                        }
-
-                        @Override
-                        public void onLayoutCancelled() {
-                            runOnUiThread(() -> finishDirectPdf(false, "تم إلغاء إنشاء PDF"));
-                        }
-                    },
-                    extras
-            );
-        } catch (Exception ex) {
-            finishDirectPdf(false, "تعذر إنشاء ملف PDF");
+old_clear = '''            pendingSaveBytes = null;
         }
     }
 
-'''
-java = java[:start] + method + java[end:]
+    @Override
+    public void onBackPressed()'''
+new_clear = '''            pendingSaveBytes = null;
+            pendingSaveMime = null;
+            pendingSaveName = null;
+        }
+    }
 
-old_finish = '''    private void finishDirectPdf(boolean success, String message) {
-        try {
-            if (pendingPdfDescriptor != null) pendingPdfDescriptor.close();
-        } catch (Exception ignored) {}
-        pendingPdfDescriptor = null;
-        pendingPdfHtml = "";
-'''
-new_finish = '''    private void finishDirectPdf(boolean success, String message) {
-        if (pendingPdfFinished) return;
-        pendingPdfFinished = true;
-        try {
-            if (pendingPdfCancellation != null && !success) pendingPdfCancellation.cancel();
-        } catch (Exception ignored) {}
-        pendingPdfCancellation = null;
-        pendingPdfAdapter = null;
-        try {
-            if (pendingPdfDescriptor != null) pendingPdfDescriptor.close();
-        } catch (Exception ignored) {}
-        pendingPdfDescriptor = null;
-        pendingPdfHtml = "";
-'''
-if old_finish not in java:
-    raise SystemExit('finishDirectPdf block not found')
-java = java.replace(old_finish, new_finish, 1)
-
-java = java.replace('        printingMainHtmlDocument = false;\n        destroyPrintWebView();', '''        printingMainHtmlDocument = false;
-        try { if (pendingPdfCancellation != null) pendingPdfCancellation.cancel(); } catch (Exception ignored) {}
-        pendingPdfCancellation = null;
-        pendingPdfAdapter = null;
-        try { if (pendingPdfDescriptor != null) pendingPdfDescriptor.close(); } catch (Exception ignored) {}
-        pendingPdfDescriptor = null;
-        destroyPrintWebView();''')
-
+    @Override
+    public void onBackPressed()'''
+if old_clear not in java:
+    raise SystemExit('Save state cleanup anchor missing')
+java = java.replace(old_clear, new_clear, 1)
 java_path.write_text(java, encoding='utf-8')
 
 assert "FINAL_VERSION='3.1.6'" in html
 assert "FX_VERSION='3.1.6'" in html
+assert 'AndroidApp.saveBase64File' in html
+assert html.rfind('AndroidApp.saveBase64File') > html.rfind('AndroidApp.saveHtmlAsPdf')
 assert 'versionCode 19' in build
 assert "versionName '3.1.6'" in build
-assert 'Android PDF engine v3.1.6' in java
-assert 'createPrintDocumentAdapter(pendingPdfName)' in java
-assert 'PageRange.ALL_PAGES' in java
-assert 'source.draw(page.getCanvas())' not in java
-assert 'sliceHeight' not in java
+assert 'public void saveBase64File' in java
+assert 'Base64.decode' in java
 assert 'return "3.1.6";' in java
-print('Applied Halaqa 3.1.6 native PDF pagination fix')
+print('Applied Halaqa 3.1.6 website-identical PDF bridge')
