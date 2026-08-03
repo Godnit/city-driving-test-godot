@@ -1,0 +1,111 @@
+name: Build Halaqa 3.1.6 Native PDF Fix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'halaqa-final-316/**'
+      - '.github/workflows/build-halaqa-final-316-fix-pr.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Prepare SDK and embedded PDF libraries
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+          npm install --no-save html2canvas@1.4.1 jspdf@4.2.1
+
+      - name: Restore and patch version 3.1.6
+        run: |
+          cat halaqa-final-301/source.part.* | base64 --decode > source.zip
+          unzip -q source.zip
+          python3 halaqa-final-302/patch_v302.py
+          cat halaqa-final-310/patch.part.* > /tmp/patch_v310.py
+          python3 /tmp/patch_v310.py
+          python3 halaqa-final-311/patch_v311.py
+          python3 halaqa-final-312/patch_v312.py
+          python3 halaqa-final-313/patch_v313.py
+          python3 halaqa-final-314/patch_v314.py
+          python3 halaqa-final-315/patch_v315.py
+          python3 halaqa-final-316/patch_v316.py
+          grep -q "FINAL_VERSION='3.1.6'" halaqa_apk_project/app/src/main/assets/index.html
+          grep -q 'versionCode 19' halaqa_apk_project/app/build.gradle
+          grep -q 'Android PDF engine v3.1.6' halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java
+          grep -q 'createPrintDocumentAdapter(pendingPdfName)' halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java
+          grep -q 'PageRange.ALL_PAGES' halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java
+          ! grep -q 'source.draw(page.getCanvas())' halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java
+          ! grep -q 'sliceHeight' halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java
+          python3 - <<'PY'
+          import re,pathlib
+          s=pathlib.Path('halaqa_apk_project/app/src/main/assets/index.html').read_text(encoding='utf-8')
+          pathlib.Path('/tmp/app.js').write_text('\n;\n'.join(re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>',s,re.S|re.I)),encoding='utf-8')
+          assert s.count('complete-dark-theme-v315')==1
+          assert s.count('direct-pdf-export-v314')==1
+          PY
+          node --check /tmp/app.js
+
+      - name: Sign and build APK
+        run: |
+          mkdir -p "$HOME/.android"
+          cat halaqa-final-301/key.part.* | base64 --decode > "$HOME/.android/debug.keystore"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('halaqa_apk_project/app/build.gradle');s=p.read_text()
+          block='''android {
+              signingConfigs {
+                  updateRelease {
+                      storeFile file(System.getProperty("user.home") + "/.android/debug.keystore")
+                      storePassword "android"
+                      keyAlias "androiddebugkey"
+                      keyPassword "android"
+                  }
+              }
+          '''
+          s=s.replace('android {\n',block,1).replace('signingConfig signingConfigs.debug','signingConfig signingConfigs.updateRelease')
+          p.write_text(s)
+          PY
+          gradle -p halaqa_apk_project --no-daemon --stacktrace assembleRelease
+
+      - name: Verify and package output
+        run: |
+          mkdir -p output
+          cp halaqa_apk_project/app/build/outputs/apk/release/app-release.apk output/halaqa-followup-3.1.6.apk
+          cp halaqa_apk_project/app/src/main/assets/index.html output/halaqa-followup-3.1.6.html
+          cd halaqa_apk_project && zip -qr ../output/halaqa-followup-3.1.6-source.zip . && cd ..
+          keytool -printcert -jarfile output/halaqa-followup-3.1.6.apk > output/SIGNING_CERT.txt
+          grep -q 'SHA256: 36:22:06:C5:34:F7:63:0C:9C:4A:8E:46:7E:5A:61:F2:2F:94:81:15:CC:47:EF:5F:F5:38:FA:58:D2:6D:EC:70' output/SIGNING_CERT.txt
+          sha256sum output/halaqa-followup-3.1.6.apk > output/SHA256.txt
+          cat > output/UPDATE_INFO.txt <<'INFO'
+          Package: com.halaqa.followup
+          Version: 3.1.6
+          Version code: 19
+          The APK no longer draws and slices one long phone-width bitmap.
+          WebView PrintDocumentAdapter writes the exact report directly as A4 PDF.
+          Portrait and landscape page width, CSS pagination, table borders and rows are preserved.
+          Complete dark theme and previous fixes remain included.
+          Signed with the same update certificate as previous versions.
+          INFO
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: halaqa-final-3-1-6-native-pdf-fix
+          path: output/
+          if-no-files-found: error
+          retention-days: 30
