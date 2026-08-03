@@ -41,7 +41,7 @@ patch=r'''
     const m=metrics(landscape);
     const holder=document.createElement('div');
     holder.id='direct-pdf-render-root';
-    holder.style.cssText=`position:fixed;left:0;top:0;width:${m.cssW}px;background:#fff;z-index:-2147483647;pointer-events:none;overflow:visible;direction:rtl`;
+    holder.style.cssText=`position:fixed;left:0;top:0;width:${m.cssW}px;background:#fff;z-index:2147483000;pointer-events:none;overflow:visible;direction:rtl`;
     holder.innerHTML=snapshot.report;
     document.body.appendChild(holder);
     const pages=[...holder.querySelectorAll('.fx-page')];
@@ -86,7 +86,19 @@ patch=r'''
     finally{if(button){button.disabled=false;button.textContent=old||'إنشاء ملف PDF مباشر'}}
   }
   function install(){
-    if(window.FreshExporter){window.FreshExporter.save=save;window.printPreparedReport=save}
+    if(window.FreshExporter){
+      window.FreshExporter.save=save;window.printPreparedReport=save;
+      const originalPreview=window.FreshExporter.preview;
+      if(typeof originalPreview==='function'&&!originalPreview.__v314Wrapped){
+        const wrapped=function(){
+          const result=originalPreview.apply(this,arguments);
+          const snap=this.snapshot?.();
+          if(snap?.state?.period==='weekly')document.querySelectorAll('#freshPreviewPaper .fx-page').forEach(page=>page.classList.add('fx-week-block'));
+          return result;
+        };
+        wrapped.__v314Wrapped=true;window.FreshExporter.preview=wrapped;
+      }
+    }
     const warning=$('#freshExportModal .fx-warning');if(warning)warning.textContent='نظام PDF المباشر ٣.١.٤: يُنشأ الملف من المعاينة نفسها دون فتح شاشة الطباعة، لذلك لا يمكن أن يتحول التقرير الأسبوعي إلى شهري.';
     const button=$('#freshPreviewModal .primary-btn');if(button)button.textContent='إنشاء ملف PDF مباشر';
   }
