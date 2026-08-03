@@ -1,0 +1,2 @@
+-keep class com.godnit.systemoverlay.AlarmReceiver { *; }
+-keep class com.godnit.systemoverlay.OverlayService { *; }

@@ -1,0 +1,55 @@
+name: Build System Overlay APK
+
+on:
+  push:
+    branches: [solo-system-overlay]
+    paths:
+      - 'solo-system-overlay/**'
+      - '.github/workflows/build-system-overlay.yml'
+  pull_request:
+    paths:
+      - 'solo-system-overlay/**'
+      - '.github/workflows/build-system-overlay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: solo-system-overlay
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build compact signed release APK
+        run: gradle --no-daemon --stacktrace :app:assembleRelease
+
+      - name: Show APK information
+        run: |
+          ls -lh app/build/outputs/apk/release/app-release.apk
+          sha256sum app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: System-Overlay-APK
+          path: solo-system-overlay/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
