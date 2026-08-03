@@ -115,6 +115,7 @@ jobs:
           });
           JS
           export CHROME_BIN="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium)"
+          export NODE_PATH="$GITHUB_WORKSPACE/node_modules"
           test -n "$CHROME_BIN"
           node /tmp/test-direct-pdf.cjs
           pdfinfo /tmp/weekly-direct.pdf | tee /tmp/weekly-pdfinfo.txt
