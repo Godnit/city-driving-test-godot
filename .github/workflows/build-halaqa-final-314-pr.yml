@@ -1,0 +1,212 @@
+name: Build Halaqa 3.1.4 Direct PDF
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'halaqa-final-314/**'
+      - '.github/workflows/build-halaqa-final-314-pr.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: SDK and test tools
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+
+      - name: Install embedded PDF libraries
+        run: npm install --no-save html2canvas@1.4.1 jspdf@4.2.1 playwright-core@1.55.0
+
+      - name: Restore and patch source
+        run: |
+          cat halaqa-final-301/source.part.* | base64 --decode > source.zip
+          unzip -q source.zip
+          python3 halaqa-final-302/patch_v302.py
+          cat halaqa-final-310/patch.part.* > /tmp/patch_v310.py
+          python3 /tmp/patch_v310.py
+          python3 halaqa-final-311/patch_v311.py
+          python3 halaqa-final-312/patch_v312.py
+          python3 halaqa-final-313/patch_v313.py
+          python3 halaqa-final-314/patch_v314.py
+          grep -q "FINAL_VERSION='3.1.4'" halaqa_apk_project/app/src/main/assets/index.html
+          grep -q 'direct-pdf-export-v314' halaqa_apk_project/app/src/main/assets/index.html
+          grep -q 'html2canvas-embedded-v141' halaqa_apk_project/app/src/main/assets/index.html
+          grep -q 'jspdf-embedded-v421' halaqa_apk_project/app/src/main/assets/index.html
+          grep -q 'versionCode 17' halaqa_apk_project/app/build.gradle
+          python3 - <<'PY'
+          import re,pathlib
+          s=pathlib.Path('halaqa_apk_project/app/src/main/assets/index.html').read_text(encoding='utf-8')
+          scripts=re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>',s,re.S|re.I)
+          pathlib.Path('/tmp/app.js').write_text('\n;\n'.join(scripts),encoding='utf-8')
+          assert s.count('direct-pdf-export-v314')==1
+          assert 'window.FreshExporter.save=save' in s
+          assert 'نظام PDF المباشر ٣.١.٤' in s
+          PY
+          node --check /tmp/app.js
+
+      - name: Browser test direct weekly PDF download
+        run: |
+          cat > /tmp/test-direct-pdf.cjs <<'JS'
+          const {chromium}=require('playwright-core');
+          const http=require('http'),fs=require('fs'),path=require('path');
+          const root=path.resolve('halaqa_apk_project/app/src/main/assets');
+          const server=http.createServer((req,res)=>{
+            const file=path.join(root,decodeURIComponent(req.url==='/'?'/index.html':req.url));
+            fs.readFile(file,(err,data)=>{if(err){res.statusCode=404;return res.end('not found')}res.setHeader('Content-Type','text/html; charset=utf-8');res.end(data)});
+          });
+          server.listen(8765,'127.0.0.1',async()=>{
+            const executablePath=process.env.CHROME_BIN;
+            const browser=await chromium.launch({headless:true,executablePath,args:['--no-sandbox']});
+            const page=await browser.newPage({viewport:{width:1200,height:900}});
+            const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+            await page.goto('http://127.0.0.1:8765/index.html',{waitUntil:'load'});
+            await page.waitForFunction(()=>window.DirectPdfExporter&&window.FreshExporter);
+            await page.evaluate(()=>{
+              window.__printCalled=false;window.print=()=>{window.__printCalled=true;throw new Error('window.print must not be called')};
+              db.settings.teacherName='ميمون';db.settings.circleName='المسارة';
+              db.students=[{id:'s1',name:'نصر',studentNumber:'1',guardianPhone:'777000111',createdAt:isoToday(),curricula:{}}];currentStudentId='s1';
+              const start=periodStart(hijriCursor.y,hijriCursor.m);db.recitations=[];db.attendance=[];db.notes=[];db.holidays=[];
+              const grades=['excellent','verygood','good','excellent'];
+              for(let i=0;i<4;i++){
+                const date=isoDate(addDays(start,i));
+                db.recitations.push({id:'m'+i,studentId:'s1',kind:'memorization',date,grade:grades[i],surah:'الفاتحة',from:'1',to:'7',createdAt:new Date().toISOString()});
+                db.recitations.push({id:'r'+i,studentId:'s1',kind:'review',date,grade:grades[3-i],reviewItems:[{startSurah:'البقرة',endSurah:'البقرة',from:'1',to:'10'}],createdAt:new Date().toISOString()});
+                db.attendance.push({id:'a'+i,studentId:'s1',kind:'memorization',date,present:true});db.attendance.push({id:'b'+i,studentId:'s1',kind:'review',date,present:true});
+              }
+              FreshExporter.setState({content:'grades',scope:'single',period:'weekly',week:0,session:'both'});FreshExporter.preview();
+            });
+            const state=await page.evaluate(()=>({
+              period:FreshExporter.snapshot().state.period,
+              week:FreshExporter.snapshot().state.week,
+              pages:document.querySelectorAll('#freshPreviewPaper .fx-page').length,
+              blocks:document.querySelectorAll('#freshPreviewPaper .fx-week-block').length,
+              title:document.querySelector('#freshPreviewPaper .fx-head h1')?.textContent||'',
+              hasSecond:FreshExporter.snapshot().report.includes('الأسبوع الثاني')
+            }));
+            if(state.period!=='weekly'||state.week!==0||state.pages!==1||state.blocks!==1||state.hasSecond)throw new Error('Weekly preview snapshot is not isolated: '+JSON.stringify(state));
+            const downloadPromise=page.waitForEvent('download');
+            await page.evaluate(()=>FreshExporter.save());
+            const download=await downloadPromise;await download.saveAs('/tmp/weekly-direct.pdf');
+            const printCalled=await page.evaluate(()=>window.__printCalled);
+            if(printCalled)throw new Error('Browser print path was called');
+            const first=fs.readFileSync('/tmp/weekly-direct.pdf').subarray(0,5).toString();if(first!=='%PDF-')throw new Error('Downloaded file is not PDF');
+            if(errors.length)throw new Error('Page errors: '+errors.join(' | '));
+            console.log(JSON.stringify(state));
+            await browser.close();server.close();
+          });
+          JS
+          export CHROME_BIN="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium)"
+          test -n "$CHROME_BIN"
+          node /tmp/test-direct-pdf.cjs
+          pdfinfo /tmp/weekly-direct.pdf | tee /tmp/weekly-pdfinfo.txt
+          test "$(pdfinfo /tmp/weekly-direct.pdf | awk '/^Pages:/{print $2}')" = "1"
+          pdftoppm -png -singlefile -r 120 /tmp/weekly-direct.pdf /tmp/weekly-direct-render
+          test -s /tmp/weekly-direct-render.png
+
+      - name: Use Android PdfDocument renderer
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java')
+          j=p.read_text(encoding='utf-8')
+          j=j.replace('import android.graphics.Color;', 'import android.graphics.Color;\nimport android.graphics.pdf.PdfDocument;')
+          j=j.replace('import java.io.InputStream;', 'import java.io.InputStream;\nimport java.io.FileOutputStream;')
+          start=j.index('    private void writeAttachedWebViewPdf(WebView source) {')
+          end=j.index('    private void finishDirectPdf(', start)
+          method=r'''    private void writeAttachedWebViewPdf(WebView source) {
+              PdfDocument document = null;
+              FileOutputStream output = null;
+              try {
+                  final int webWidth = pendingPdfLandscape ? 1123 : 794;
+                  final int pageWidth = pendingPdfLandscape ? 842 : 595;
+                  final int pageHeight = pendingPdfLandscape ? 595 : 842;
+                  source.measure(View.MeasureSpec.makeMeasureSpec(webWidth, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                  int measured = Math.max(source.getMeasuredHeight(), (int) Math.ceil(source.getContentHeight() * Math.max(1f, source.getScale())));
+                  int contentHeight = Math.max(measured, pendingPdfLandscape ? 794 : 1123);
+                  source.layout(0, 0, webWidth, contentHeight);
+                  float scale = pageWidth / (float) webWidth;
+                  float sliceHeight = pageHeight / scale;
+                  int pageCount = Math.max(1, (int) Math.ceil(contentHeight / sliceHeight));
+                  document = new PdfDocument();
+                  for (int i = 0; i < pageCount; i++) {
+                      PdfDocument.Page page = document.startPage(new PdfDocument.PageInfo.Builder(pageWidth, pageHeight, i + 1).create());
+                      page.getCanvas().drawColor(Color.WHITE);page.getCanvas().save();page.getCanvas().scale(scale, scale);page.getCanvas().translate(0f, -i * sliceHeight);source.draw(page.getCanvas());page.getCanvas().restore();document.finishPage(page);
+                  }
+                  output = new FileOutputStream(pendingPdfDescriptor.getFileDescriptor());document.writeTo(output);output.flush();finishDirectPdf(true, "تم حفظ تقرير PDF");
+              } catch (Exception ex) {finishDirectPdf(false, "تعذر إنشاء ملف PDF");}
+              finally {try { if (output != null) output.close(); } catch (Exception ignored) {}try { if (document != null) document.close(); } catch (Exception ignored) {}}
+          }
+
+          '''
+          p.write_text(j[:start]+method+j[end:],encoding='utf-8')
+          PY
+
+      - name: Sign and build APK
+        run: |
+          mkdir -p "$HOME/.android"
+          cat halaqa-final-301/key.part.* | base64 --decode > "$HOME/.android/debug.keystore"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('halaqa_apk_project/app/build.gradle');s=p.read_text()
+          block='''android {
+              signingConfigs {
+                  updateRelease {
+                      storeFile file(System.getProperty("user.home") + "/.android/debug.keystore")
+                      storePassword "android"
+                      keyAlias "androiddebugkey"
+                      keyPassword "android"
+                  }
+              }
+          '''
+          s=s.replace('android {\n',block,1).replace('signingConfig signingConfigs.debug','signingConfig signingConfigs.updateRelease')
+          p.write_text(s)
+          PY
+          gradle -p halaqa_apk_project --no-daemon assembleRelease
+
+      - name: Package output
+        run: |
+          mkdir -p output
+          cp halaqa_apk_project/app/build/outputs/apk/release/app-release.apk output/halaqa-followup-3.1.4.apk
+          cp halaqa_apk_project/app/src/main/assets/index.html output/halaqa-followup-3.1.4.html
+          cp /tmp/weekly-direct.pdf output/weekly-direct-test.pdf
+          cp /tmp/weekly-direct-render.png output/weekly-direct-test.png
+          cp /tmp/weekly-pdfinfo.txt output/WEEKLY_PDFINFO.txt
+          cd halaqa_apk_project && zip -qr ../output/halaqa-followup-3.1.4-source.zip . && cd ..
+          keytool -printcert -jarfile output/halaqa-followup-3.1.4.apk > output/SIGNING_CERT.txt
+          grep -q 'SHA256: 36:22:06:C5:34:F7:63:0C:9C:4A:8E:46:7E:5A:61:F2:2F:94:81:15:CC:47:EF:5F:F5:38:FA:58:D2:6D:EC:70' output/SIGNING_CERT.txt
+          sha256sum output/halaqa-followup-3.1.4.apk > output/SHA256.txt
+          cat > output/UPDATE_INFO.txt <<'INFO'
+          Package: com.halaqa.followup
+          Version: 3.1.4
+          Version code: 17
+          Browser HTML creates a real PDF file directly from the frozen preview using embedded offline libraries.
+          It does not open Android/Samsung print preview and never calls window.print.
+          The automated weekly test downloaded a one-page PDF containing only the selected week.
+          APK keeps its native direct PDF save path.
+          INFO
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: halaqa-final-3-1-4-direct-pdf
+          path: output/
+          if-no-files-found: error
+          retention-days: 30
