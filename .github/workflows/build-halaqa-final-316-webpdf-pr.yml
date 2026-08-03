@@ -1,0 +1,183 @@
+name: Build Halaqa 3.1.6 Website PDF Engine
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'halaqa-final-316/**'
+      - '.github/workflows/build-halaqa-final-316-webpdf-pr.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Prepare SDK and test tools
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          npm install --no-save html2canvas@1.4.1 jspdf@4.2.1 playwright-core@1.55.0
+
+      - name: Restore and patch version 3.1.6
+        run: |
+          cat halaqa-final-301/source.part.* | base64 --decode > source.zip
+          unzip -q source.zip
+          python3 halaqa-final-302/patch_v302.py
+          cat halaqa-final-310/patch.part.* > /tmp/patch_v310.py
+          python3 /tmp/patch_v310.py
+          python3 halaqa-final-311/patch_v311.py
+          python3 halaqa-final-312/patch_v312.py
+          python3 halaqa-final-313/patch_v313.py
+          python3 halaqa-final-314/patch_v314.py
+          python3 halaqa-final-315/patch_v315.py
+          python3 halaqa-final-316/patch_v316.py
+          grep -q "FINAL_VERSION='3.1.6'" halaqa_apk_project/app/src/main/assets/index.html
+          grep -q 'versionCode 19' halaqa_apk_project/app/build.gradle
+          grep -q 'saveBase64File' halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java
+          grep -q 'Base64.decode' halaqa_apk_project/app/src/main/java/com/halaqa/followup/MainActivity.java
+          grep -q 'AndroidApp.saveBase64File' halaqa_apk_project/app/src/main/assets/index.html
+          python3 - <<'PY'
+          import re,pathlib
+          s=pathlib.Path('halaqa_apk_project/app/src/main/assets/index.html').read_text(encoding='utf-8')
+          pathlib.Path('/tmp/app.js').write_text('\n;\n'.join(re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>',s,re.S|re.I)),encoding='utf-8')
+          assert s.count('complete-dark-theme-v315')==1
+          assert s.count('direct-pdf-export-v314')==1
+          assert s.rfind('AndroidApp.saveBase64File') > s.rfind('AndroidApp.saveHtmlAsPdf')
+          PY
+          node --check /tmp/app.js
+
+      - name: Verify APK route generates the exact website PDF
+        run: |
+          cat > /tmp/test-v316-webpdf.cjs <<'JS'
+          const {chromium}=require('playwright-core');
+          const fs=require('fs');
+          (async()=>{
+            const browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_BIN,args:['--no-sandbox']});
+            const page=await browser.newPage({viewport:{width:710,height:1536}});
+            const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+            const html=fs.readFileSync('halaqa_apk_project/app/src/main/assets/index.html','utf8');
+            await page.setContent(html,{waitUntil:'load'});
+            await page.waitForFunction(()=>window.FreshExporter&&window.DirectPdfExporter&&typeof renderAll==='function');
+            await page.evaluate(()=>{
+              window.__nativePdf=null;
+              window.AndroidApp={
+                saveBase64File:(name,base64,mime)=>{window.__nativePdf={name,base64,mime}},
+                saveTextFile:()=>{},
+                setSystemTheme:()=>{},
+                appVersion:()=> '3.1.6'
+              };
+              db.settings=db.settings||{};db.settings.teacherName='ميمون';db.settings.circleName='المسارة';
+              db.students=Array.from({length:42},(_,i)=>({id:'s'+(i+1),name:'الطالب رقم '+(i+1),studentNumber:String(i+1),guardianPhone:'77'+String(1000000+i),createdAt:isoToday(),curricula:{}}));
+              currentStudentId='s1';db.recitations=[];db.attendance=[];db.notes=[];db.holidays=[];
+              const start=periodStart(hijriCursor.y,hijriCursor.m);
+              for(let i=0;i<4;i++){
+                const date=isoDate(addDays(start,i));
+                for(let s=1;s<=42;s++){
+                  db.recitations.push({id:'m'+s+'-'+i,studentId:'s'+s,kind:'memorization',date,grade:['excellent','verygood','good','excellent'][i],surah:'الفاتحة',from:'1',to:'7',createdAt:new Date().toISOString()});
+                  db.recitations.push({id:'r'+s+'-'+i,studentId:'s'+s,kind:'review',date,grade:['verygood','good','excellent','verygood'][i],reviewItems:[{startSurah:'البقرة',endSurah:'البقرة',from:'1',to:'10'}],createdAt:new Date().toISOString()});
+                  db.attendance.push({id:'a'+s+'-'+i,studentId:'s'+s,kind:'memorization',date,present:true});
+                  db.attendance.push({id:'b'+s+'-'+i,studentId:'s'+s,kind:'review',date,present:true});
+                }
+              }
+              renderAll();
+              FreshExporter.setState({content:'comprehensive',scope:'all',period:'weekly',week:0,session:'both'});
+              FreshExporter.preview();
+            });
+            const preview=await page.$eval('#freshPreviewPaper .fx-page.landscape',e=>({rows:e.querySelectorAll('tbody tr').length,scroll:e.scrollWidth,client:e.clientWidth}));
+            if(preview.rows!==42)throw new Error('Expected 42 rows: '+JSON.stringify(preview));
+            if(Math.abs(preview.scroll-preview.client)>2)throw new Error('Preview horizontal overflow: '+JSON.stringify(preview));
+            await page.evaluate(()=>FreshExporter.save());
+            await page.waitForFunction(()=>window.__nativePdf&&window.__nativePdf.base64.length>1000,{timeout:30000});
+            const payload=await page.evaluate(()=>window.__nativePdf);
+            if(payload.mime!=='application/pdf')throw new Error('Wrong MIME '+payload.mime);
+            if(!payload.name.endsWith('.pdf'))throw new Error('Wrong file name '+payload.name);
+            const bytes=Buffer.from(payload.base64,'base64');
+            if(bytes.subarray(0,5).toString()!=='%PDF-')throw new Error('Native bridge did not receive a PDF');
+            fs.writeFileSync('/tmp/all-students-v316.pdf',bytes);
+            if(errors.length)throw new Error('Page errors: '+errors.join(' | '));
+            await browser.close();
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          export CHROME_BIN="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium)"
+          export NODE_PATH="$GITHUB_WORKSPACE/node_modules"
+          test -n "$CHROME_BIN"
+          node /tmp/test-v316-webpdf.cjs
+          pdfinfo /tmp/all-students-v316.pdf | tee /tmp/all-students-v316-info.txt
+          test "$(pdfinfo /tmp/all-students-v316.pdf | awk '/^Pages:/{print $2}')" = "1"
+          python3 - <<'PY'
+          import re,subprocess
+          text=subprocess.check_output(['pdfinfo','/tmp/all-students-v316.pdf'],text=True)
+          m=re.search(r'Page size:\s+([\d.]+) x ([\d.]+)',text)
+          assert m and float(m.group(1))>float(m.group(2)), text
+          PY
+          pdftoppm -png -singlefile -r 140 /tmp/all-students-v316.pdf /tmp/all-students-v316-render
+          test -s /tmp/all-students-v316-render.png
+
+      - name: Sign and build APK
+        run: |
+          mkdir -p "$HOME/.android"
+          cat halaqa-final-301/key.part.* | base64 --decode > "$HOME/.android/debug.keystore"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('halaqa_apk_project/app/build.gradle');s=p.read_text()
+          block='''android {
+              signingConfigs {
+                  updateRelease {
+                      storeFile file(System.getProperty("user.home") + "/.android/debug.keystore")
+                      storePassword "android"
+                      keyAlias "androiddebugkey"
+                      keyPassword "android"
+                  }
+              }
+          '''
+          s=s.replace('android {\n',block,1).replace('signingConfig signingConfigs.debug','signingConfig signingConfigs.updateRelease')
+          p.write_text(s)
+          PY
+          gradle -p halaqa_apk_project --no-daemon --stacktrace assembleRelease
+
+      - name: Package and verify output
+        run: |
+          mkdir -p output
+          cp halaqa_apk_project/app/build/outputs/apk/release/app-release.apk output/halaqa-followup-3.1.6.apk
+          cp halaqa_apk_project/app/src/main/assets/index.html output/halaqa-followup-3.1.6.html
+          cp /tmp/all-students-v316.pdf output/all-students-v316-test.pdf
+          cp /tmp/all-students-v316-render.png output/all-students-v316-test.png
+          cp /tmp/all-students-v316-info.txt output/ALL_STUDENTS_PDFINFO.txt
+          cd halaqa_apk_project && zip -qr ../output/halaqa-followup-3.1.6-source.zip . && cd ..
+          keytool -printcert -jarfile output/halaqa-followup-3.1.6.apk > output/SIGNING_CERT.txt
+          grep -q 'SHA256: 36:22:06:C5:34:F7:63:0C:9C:4A:8E:46:7E:5A:61:F2:2F:94:81:15:CC:47:EF:5F:F5:38:FA:58:D2:6D:EC:70' output/SIGNING_CERT.txt
+          sha256sum output/halaqa-followup-3.1.6.apk > output/SHA256.txt
+          cat > output/UPDATE_INFO.txt <<'INFO'
+          Package: com.halaqa.followup
+          Version: 3.1.6
+          Version code: 19
+          The APK now uses the same html2canvas/jsPDF engine that already works in the HTML website.
+          The finished PDF bytes are transferred to Android only for choosing the save location.
+          No phone-width WebView drawing or arbitrary bitmap page slicing is used by the active export route.
+          Full A4 landscape width and the exact preview layout are preserved.
+          Complete dark theme and all previous fixes remain included.
+          Signed with the same update certificate as previous versions.
+          INFO
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: halaqa-final-3-1-6-website-pdf-engine
+          path: output/
+          if-no-files-found: error
+          retention-days: 30
