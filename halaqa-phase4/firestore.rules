@@ -1,0 +1,135 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function belongsTo(mosqueId) {
+      return signedIn()
+        && userProfile().data.active == true
+        && userProfile().data.mosqueId == mosqueId;
+    }
+
+    function roleIs(mosqueId, role) {
+      return belongsTo(mosqueId) && userProfile().data.role == role;
+    }
+
+    function isAdmin(mosqueId) {
+      return roleIs(mosqueId, 'admin');
+    }
+
+    function isTeacher(mosqueId) {
+      return roleIs(mosqueId, 'teacher');
+    }
+
+    function ownGroup(mosqueId, groupId) {
+      return belongsTo(mosqueId)
+        && userProfile().data.groupId == groupId;
+    }
+
+    function commonRecordFieldsValid(mosqueId) {
+      return request.resource.data.mosqueId == mosqueId
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid ||
+        (resource.data.mosqueId is string && isAdmin(resource.data.mosqueId)));
+
+      // The first mosque owner creates their own profile. Existing admins can
+      // create or update users that belong to their mosque.
+      allow create: if signedIn() && (
+        request.auth.uid == uid && request.resource.data.role == 'admin' ||
+        isAdmin(request.resource.data.mosqueId)
+      );
+
+      allow update: if signedIn() && (
+        request.auth.uid == uid
+          && request.resource.data.mosqueId == resource.data.mosqueId
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.active == resource.data.active ||
+        isAdmin(resource.data.mosqueId)
+      );
+
+      allow delete: if signedIn() && isAdmin(resource.data.mosqueId) && request.auth.uid != uid;
+    }
+
+    match /mosques/{mosqueId} {
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.active == true;
+      allow read: if belongsTo(mosqueId);
+      allow update: if isAdmin(mosqueId);
+      allow delete: if false;
+
+      match /members/{uid} {
+        allow read: if belongsTo(mosqueId);
+        allow create, update: if isAdmin(mosqueId)
+          || (signedIn() && request.auth.uid == uid
+            && request.resource.data.role == 'admin'
+            && request.resource.data.mosqueId == mosqueId);
+        allow delete: if isAdmin(mosqueId) && request.auth.uid != uid;
+      }
+
+      match /groups/{groupId} {
+        allow read: if belongsTo(mosqueId);
+        allow write: if isAdmin(mosqueId);
+      }
+
+      match /students/{studentId} {
+        allow read: if belongsTo(mosqueId)
+          && (isAdmin(mosqueId) || ownGroup(mosqueId, resource.data.groupId));
+        allow create: if commonRecordFieldsValid(mosqueId)
+          && (isAdmin(mosqueId) || ownGroup(mosqueId, request.resource.data.groupId));
+        allow update: if commonRecordFieldsValid(mosqueId)
+          && (isAdmin(mosqueId) || ownGroup(mosqueId, resource.data.groupId));
+        allow delete: if isAdmin(mosqueId);
+      }
+
+      match /recitations/{recordId} {
+        allow read: if belongsTo(mosqueId)
+          && (isAdmin(mosqueId) || ownGroup(mosqueId, resource.data.groupId));
+        allow create: if commonRecordFieldsValid(mosqueId)
+          && (isAdmin(mosqueId) || ownGroup(mosqueId, request.resource.data.groupId));
+        allow update: if commonRecordFieldsValid(mosqueId)
+          && (isAdmin(mosqueId) || request.auth.uid == resource.data.teacherId);
+        allow delete: if isAdmin(mosqueId) || request.auth.uid == resource.data.teacherId;
+      }
+
+      match /attendance/{recordId} {
+        allow read: if belongsTo(mosqueId)
+          && (isAdmin(mosqueId) || ownGroup(mosqueId, resource.data.groupId));
+        allow create: if commonRecordFieldsValid(mosqueId)
+          && (isAdmin(mosqueId) || ownGroup(mosqueId, request.resource.data.groupId));
+        allow update: if commonRecordFieldsValid(mosqueId)
+          && (isAdmin(mosqueId) || request.auth.uid == resource.data.teacherId);
+        allow delete: if isAdmin(mosqueId) || request.auth.uid == resource.data.teacherId;
+      }
+
+      match /notes/{recordId} {
+        allow read: if belongsTo(mosqueId)
+          && (isAdmin(mosqueId) || ownGroup(mosqueId, resource.data.groupId));
+        allow create: if commonRecordFieldsValid(mosqueId)
+          && (isAdmin(mosqueId) || ownGroup(mosqueId, request.resource.data.groupId));
+        allow update: if commonRecordFieldsValid(mosqueId)
+          && (isAdmin(mosqueId) || request.auth.uid == resource.data.teacherId);
+        allow delete: if isAdmin(mosqueId) || request.auth.uid == resource.data.teacherId;
+      }
+
+      match /holidays/{recordId} {
+        allow read: if belongsTo(mosqueId);
+        allow write: if isAdmin(mosqueId);
+      }
+
+      match /settings/{documentId} {
+        allow read: if belongsTo(mosqueId);
+        allow write: if isAdmin(mosqueId);
+      }
+    }
+  }
+}
