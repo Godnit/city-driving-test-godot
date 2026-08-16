@@ -35,7 +35,7 @@ func _build_environment() -> void:
 	sky_mat.sky_horizon_color = Color("d9e5ee")
 	sky_mat.ground_bottom_color = Color("8695a2")
 	sky_mat.ground_horizon_color = Color("d9e5ee")
-	sky.material = sky_mat
+	sky.sky_material = sky_mat
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_energy = 0.62
