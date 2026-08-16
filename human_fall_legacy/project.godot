@@ -1,0 +1,25 @@
+; Engine configuration file.
+config_version=4
+
+[application]
+config/name="Floppy Physics Legacy"
+run/main_scene="res://main.tscn"
+boot_splash/bg_color=Color(0.84, 0.89, 0.94, 1)
+
+[display]
+
+[display/window]
+size/width=960
+size/height=540
+stretch/mode="2d"
+stretch/aspect="expand"
+handheld/orientation="landscape"
+
+[physics]
+common/physics_fps=60
+3d/default_gravity=12.8
+
+[rendering]
+quality/driver/driver_name="GLES2"
+quality/driver/fallback_to_gles2=true
+quality/shadows/filter_mode=1
