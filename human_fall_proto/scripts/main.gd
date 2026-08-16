@@ -5,7 +5,7 @@ const MobileUIScript = preload("res://scripts/mobile_ui.gd")
 
 var player: RigidBody3D
 var camera: Camera3D
-var ui: Control
+var ui
 var camera_yaw := 0.0
 var camera_pitch := deg_to_rad(-17.0)
 var camera_distance := 6.8
@@ -145,11 +145,11 @@ func _build_ui() -> void:
 func _physics_process(delta: float) -> void:
 	if player == null or ui == null:
 		return
-	var move := ui.move_vector
+	var move: Vector2 = ui.move_vector
 	if move.length_squared() < 0.001:
 		move = Input.get_vector("move_left", "move_right", "move_back", "move_forward")
-	var jump := ui.consume_jump() or Input.is_action_just_pressed("jump")
-	var cam_delta := ui.consume_camera_delta()
+	var jump: bool = bool(ui.consume_jump()) or Input.is_action_just_pressed("jump")
+	var cam_delta: Vector2 = ui.consume_camera_delta()
 	camera_yaw -= cam_delta.x * 0.0062
 	camera_pitch = clamp(camera_pitch - cam_delta.y * 0.0045, deg_to_rad(-48.0), deg_to_rad(10.0))
 	player.set_controls(move, jump, camera_yaw)
