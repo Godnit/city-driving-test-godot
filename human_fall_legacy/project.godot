@@ -23,3 +23,7 @@ common/physics_fps=60
 quality/driver/driver_name="GLES2"
 quality/driver/fallback_to_gles2=true
 quality/shadows/filter_mode=1
+vram_compression/import_etc=true
+vram_compression/import_etc2=false
+vram_compression/import_pvrtc=false
+vram_compression/import_s3tc=false
