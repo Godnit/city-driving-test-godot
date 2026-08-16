@@ -1,0 +1,104 @@
+name: Build Floppy Physics Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'human_fall_proto/**'
+      - '.github/workflows/build-floppy-physics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-debug:
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.6.3
+    env:
+      GODOT_VERSION: 4.6.3
+      ANDROID_SDK_ROOT: /tmp/android-sdk
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$ANDROID_SDK_ROOT" /tmp/android-tools /tmp/android-tools.zip
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest" /tmp/android-tools
+          wget -q -O /tmp/android-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+          unzip -q /tmp/android-tools.zip -d /tmp/android-tools
+          cp -a /tmp/android-tools/cmdline-tools/. "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
+          "$sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "build-tools;35.0.1" "platforms;android-35"
+      - name: Configure Godot Android environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          template_source=$(find /root/.local/share/godot -type f -name android_debug.apk -printf '%h\n' | head -n 1)
+          template_target="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$template_target"
+          cp -a "$template_source"/. "$template_target"/
+          java_home=${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")}
+          mkdir -p "$HOME/.config/godot"
+          root_settings=$(find /root/.config/godot -maxdepth 1 -type f -name 'editor_settings*.tres' | head -n 1 || true)
+          if [ -n "$root_settings" ]; then cp "$root_settings" "$HOME/.config/godot/editor_settings-4.6.tres"; else printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$HOME/.config/godot/editor_settings-4.6.tres"; fi
+          {
+            printf '\nexport/android/java_sdk_path = "%s"\n' "$java_home"
+            printf 'export/android/android_sdk_path = "%s"\n' "$ANDROID_SDK_ROOT"
+            printf 'export/android/debug_keystore = "/root/debug.keystore"\n'
+            printf 'export/android/debug_keystore_user = "androiddebugkey"\n'
+            printf 'export/android/debug_keystore_pass = "android"\n'
+          } >> "$HOME/.config/godot/editor_settings-4.6.tres"
+      - name: Import and parse project
+        shell: bash
+        working-directory: human_fall_proto
+        run: |
+          set -euo pipefail
+          godot --headless --editor --quit --path . 2>&1 | tee import.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' import.log
+      - name: Smoke test startup
+        shell: bash
+        working-directory: human_fall_proto
+        run: |
+          set -euo pipefail
+          godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' smoke-test.log
+          grep -q 'HUMAN_PHYSICS_READY' smoke-test.log
+      - name: Export debug APK
+        shell: bash
+        working-directory: human_fall_proto
+        run: |
+          set -euo pipefail
+          mkdir -p build/android
+          apk=build/android/FloppyPhysics-v0.1.apk
+          godot --headless --verbose --path . --export-debug Android "$apk" 2>&1 | tee build/android/export.log
+          test -f "$apk"
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call' build/android/export.log
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/apksigner" verify --verbose "$apk"
+          unzip -tq "$apk"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.1/aapt" dump badging "$apk" | tee build/android/badging.txt
+          grep -q "native-code: 'armeabi-v7a'" build/android/badging.txt
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloppyPhysics-v0.1-APK
+          path: human_fall_proto/build/android/FloppyPhysics-v0.1.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloppyPhysics-v0.1-Diagnostics
+          path: |
+            human_fall_proto/import.log
+            human_fall_proto/smoke-test.log
+            human_fall_proto/build/android/export.log
+            human_fall_proto/build/android/badging.txt
+          if-no-files-found: ignore
+          retention-days: 3
