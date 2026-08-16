@@ -1,0 +1,105 @@
+name: Build Floppy Physics Android 8 Legacy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'human_fall_legacy/**'
+      - '.github/workflows/build-floppy-legacy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-legacy:
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:3.5.3
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Inspect environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --version
+          echo "ANDROID_HOME=${ANDROID_HOME:-}"
+          find /root/.local/share/godot -maxdepth 4 -type f \( -name 'android_debug.apk' -o -name 'android_release.apk' \) -print | head -20 || true
+
+      - name: Configure Godot 3 export environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/share/godot" "$HOME/.config/godot"
+          if [ -d /root/.local/share/godot ]; then cp -a /root/.local/share/godot/. "$HOME/.local/share/godot/" || true; fi
+          java_home=${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")}
+          sdk_root=${ANDROID_HOME:-/usr/lib/android-sdk}
+          cat > "$HOME/.config/godot/editor_settings-3.tres" <<EOF
+          [gd_resource type="EditorSettings" format=2]
+
+          [resource]
+          export/android/android_sdk_path = "$sdk_root"
+          export/android/java_sdk_path = "$java_home"
+          export/android/debug_keystore = "/root/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+
+      - name: Import and parse project
+        shell: bash
+        working-directory: human_fall_legacy
+        run: |
+          set -euo pipefail
+          godot --headless --editor --quit --path . 2>&1 | tee import.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call|Parser Error' import.log
+
+      - name: Smoke test startup
+        shell: bash
+        working-directory: human_fall_legacy
+        run: |
+          set -euo pipefail
+          timeout 25s godot --headless --path . -- --smoke-test 2>&1 | tee smoke-test.log
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call|Parser Error' smoke-test.log
+          grep -q 'HUMAN_LEGACY_READY' smoke-test.log
+
+      - name: Export Android 8 legacy APK
+        shell: bash
+        working-directory: human_fall_legacy
+        run: |
+          set -euo pipefail
+          mkdir -p build/android
+          apk=build/android/FloppyPhysics-Android8-Legacy.apk
+          godot --headless --verbose --path . --export-debug Android "$apk" 2>&1 | tee build/android/export.log
+          test -f "$apk"
+          ! grep -E 'SCRIPT ERROR|Parse Error|Invalid call|Parser Error' build/android/export.log
+          aapt_bin=$(find "${ANDROID_HOME:-/usr/lib/android-sdk}/build-tools" -type f -name aapt | sort -V | tail -1)
+          apksigner_bin=$(find "${ANDROID_HOME:-/usr/lib/android-sdk}/build-tools" -type f -name apksigner | sort -V | tail -1)
+          "$apksigner_bin" verify --verbose "$apk"
+          unzip -tq "$apk"
+          "$aapt_bin" dump badging "$apk" | tee build/android/badging.txt
+          grep -q "sdkVersion:'" build/android/badging.txt
+          grep -q "native-code: 'armeabi-v7a' 'arm64-v8a'\|native-code: 'arm64-v8a' 'armeabi-v7a'" build/android/badging.txt
+
+      - name: Upload legacy APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloppyPhysics-Android8-Legacy-APK
+          path: human_fall_legacy/build/android/FloppyPhysics-Android8-Legacy.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloppyPhysics-Android8-Legacy-Diagnostics
+          path: |
+            human_fall_legacy/import.log
+            human_fall_legacy/smoke-test.log
+            human_fall_legacy/build/android/export.log
+            human_fall_legacy/build/android/badging.txt
+          if-no-files-found: ignore
+          retention-days: 3
