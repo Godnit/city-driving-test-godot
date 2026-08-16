@@ -15,7 +15,7 @@ jobs:
   android-legacy:
     runs-on: ubuntu-24.04
     container:
-      image: barichello/godot-ci:3.5.3
+      image: barichello/godot-ci:3.6.2
 
     steps:
       - name: Checkout repository
@@ -81,7 +81,8 @@ jobs:
           unzip -tq "$apk"
           "$aapt_bin" dump badging "$apk" | tee build/android/badging.txt
           grep -q "sdkVersion:'" build/android/badging.txt
-          grep -q "native-code: 'armeabi-v7a' 'arm64-v8a'\|native-code: 'arm64-v8a' 'armeabi-v7a'" build/android/badging.txt
+          grep -q "armeabi-v7a" build/android/badging.txt
+          grep -q "arm64-v8a" build/android/badging.txt
 
       - name: Upload legacy APK
         uses: actions/upload-artifact@v4
