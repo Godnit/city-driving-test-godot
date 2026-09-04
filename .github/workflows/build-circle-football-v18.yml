@@ -48,6 +48,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
           cd circle_football_native
           mkdir -p res/raw "$RUNNER_TEMP/cf-audio"
           A="$RUNNER_TEMP/cf-audio"
