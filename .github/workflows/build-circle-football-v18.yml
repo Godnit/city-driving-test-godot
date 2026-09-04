@@ -1,8 +1,8 @@
-name: Build Circle Football v1.8
+name: Build Circle Football v1.9
 
 on:
   push:
-    branches: [circle-football-v1.8-real-audio-wallplay]
+    branches: [circle-football-v1.9-free-kick-control]
   workflow_dispatch:
 
 permissions:
@@ -32,17 +32,19 @@ jobs:
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" "platforms;android-35" "build-tools;35.0.1"
 
-      - name: Apply v1.7 base and v1.8 gameplay patch
+      - name: Apply v1.7, v1.8 and v1.9 gameplay patches
         shell: bash
         run: |
           set -euo pipefail
           cd circle_football_native
           python3 v17_run.py
           python3 v18_run.py
+          python3 v19_patch.py
           grep -q 'void onHostPause' src/com/godnit/circlefootballlite/MainActivity.java
           grep -q 'chooseWallBank' src/com/godnit/circlefootballlite/MainActivity.java
           grep -q 'SoundPool realSoundPool' src/com/godnit/circlefootballlite/MainActivity.java
-          grep -q 'versionName="1.8.0"' AndroidManifest.xml
+          grep -q 'True free aim' src/com/godnit/circlefootballlite/MainActivity.java
+          grep -q 'versionName="1.9.0"' AndroidManifest.xml
 
       - name: Download and normalize real football audio
         shell: bash
@@ -98,29 +100,29 @@ jobs:
           cd circle_football_native
           BT="$ANDROID_SDK_ROOT/build-tools/35.0.1"
           keytool -genkeypair -noprompt -keystore build/app.keystore -storepass android -alias app -keypass android -dname "CN=CircleFootball" -keyalg RSA -keysize 2048 -validity 10000
-          "$BT/apksigner" sign --ks build/app.keystore --ks-pass pass:android --key-pass pass:android --out build/CircleFootball-Android81-v1.8.apk build/aligned.apk
-          "$BT/apksigner" verify --verbose build/CircleFootball-Android81-v1.8.apk
-          "$BT/aapt" dump badging build/CircleFootball-Android81-v1.8.apk | tee build/badging.txt
-          grep -q "package: name='com.godnit.circlefootballlite.v18'" build/badging.txt
-          grep -q "versionCode='9'" build/badging.txt
-          grep -q "versionName='1.8.0'" build/badging.txt
+          "$BT/apksigner" sign --ks build/app.keystore --ks-pass pass:android --key-pass pass:android --out build/CircleFootball-Android81-v1.9.apk build/aligned.apk
+          "$BT/apksigner" verify --verbose build/CircleFootball-Android81-v1.9.apk
+          "$BT/aapt" dump badging build/CircleFootball-Android81-v1.9.apk | tee build/badging.txt
+          grep -q "package: name='com.godnit.circlefootballlite.v19'" build/badging.txt
+          grep -q "versionCode='10'" build/badging.txt
+          grep -q "versionName='1.9.0'" build/badging.txt
           grep -q "sdkVersion:'21'" build/badging.txt
-          unzip -l build/CircleFootball-Android81-v1.8.apk | tee build/apk-files.txt
+          unzip -l build/CircleFootball-Android81-v1.9.apk | tee build/apk-files.txt
           grep -q 'res/raw/kick_a.mp3' build/apk-files.txt
           grep -q 'res/raw/crowd_loop.mp3' build/apk-files.txt
           grep -q 'res/raw/menu_music.mp3' build/apk-files.txt
-          echo "APK_SIZE_BYTES=$(stat -c%s build/CircleFootball-Android81-v1.8.apk)" | tee build/size.txt
+          echo "APK_SIZE_BYTES=$(stat -c%s build/CircleFootball-Android81-v1.9.apk)" | tee build/size.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: CircleFootball-Android81-v1.8-APK
-          path: circle_football_native/build/CircleFootball-Android81-v1.8.apk
+          name: CircleFootball-Android81-v1.9-APK
+          path: circle_football_native/build/CircleFootball-Android81-v1.9.apk
           if-no-files-found: error
           retention-days: 14
 
       - uses: actions/upload-artifact@v4
         with:
-          name: CircleFootball-Android81-v1.8-Report
+          name: CircleFootball-Android81-v1.9-Report
           path: |
             circle_football_native/build/badging.txt
             circle_football_native/build/size.txt
