@@ -1,0 +1,101 @@
+name: Build Circle Football Native Android 8.1
+
+on:
+  push:
+    branches: [circle-football-native-android81]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-native-apk:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_SDK_ROOT="$RUNNER_TEMP/android-sdk"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest" "$RUNNER_TEMP/android-tools"
+          wget -q -O "$RUNNER_TEMP/cmdline.zip" https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+          unzip -q "$RUNNER_TEMP/cmdline.zip" -d "$RUNNER_TEMP/android-tools"
+          cp -a "$RUNNER_TEMP/android-tools/cmdline-tools/." "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+          SDKM="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
+          "$SDKM" --sdk_root="$ANDROID_SDK_ROOT" "platforms;android-35" "build-tools;35.0.1" "platform-tools"
+
+      - name: Compile pure Java game
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd circle_football_native
+          BT="$ANDROID_SDK_ROOT/build-tools/35.0.1"
+          ANDROID_JAR="$ANDROID_SDK_ROOT/platforms/android-35/android.jar"
+          rm -rf build obj dex classes.dex
+          mkdir -p build obj dex
+          javac -encoding UTF-8 -source 8 -target 8 -classpath "$ANDROID_JAR" -d obj $(find src -name '*.java' -print)
+          "$BT/d8" --min-api 21 --lib "$ANDROID_JAR" --output dex $(find obj -name '*.class' -print)
+          test -s dex/classes.dex
+
+      - name: Package and sign universal APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd circle_football_native
+          BT="$ANDROID_SDK_ROOT/build-tools/35.0.1"
+          ANDROID_JAR="$ANDROID_SDK_ROOT/platforms/android-35/android.jar"
+          "$BT/aapt" package -f -M AndroidManifest.xml -S res -I "$ANDROID_JAR" -F build/base.apk
+          cp dex/classes.dex classes.dex
+          "$BT/aapt" add build/base.apk classes.dex >/dev/null
+          "$BT/zipalign" -f 4 build/base.apk build/aligned.apk
+          keytool -genkeypair -noprompt -keystore build/debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Circle Football,O=Godnit,C=YE" -keyalg RSA -keysize 2048 -validity 10000
+          "$BT/apksigner" sign --ks build/debug.keystore --ks-pass pass:android --key-pass pass:android --out build/CircleFootball-Android81-Lite-v1.1.apk build/aligned.apk
+          rm -f classes.dex
+
+      - name: Verify Android 8.1 compatibility and APK integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd circle_football_native
+          BT="$ANDROID_SDK_ROOT/build-tools/35.0.1"
+          APK=build/CircleFootball-Android81-Lite-v1.1.apk
+          "$BT/apksigner" verify --verbose "$APK"
+          unzip -tq "$APK"
+          "$BT/aapt" dump badging "$APK" | tee build/badging.txt
+          grep -q "package: name='com.godnit.circlefootballlite'" build/badging.txt
+          grep -q "sdkVersion:'21'" build/badging.txt
+          grep -q "targetSdkVersion:'35'" build/badging.txt
+          ! grep -q "native-code:" build/badging.txt
+          test $(stat -c%s "$APK") -lt 1500000
+          echo "APK_SIZE_BYTES=$(stat -c%s "$APK")" | tee build/size.txt
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CircleFootball-Android81-Lite-v1.1-APK
+          path: circle_football_native/build/CircleFootball-Android81-Lite-v1.1.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload verification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: CircleFootball-Android81-Lite-v1.1-Report
+          path: |
+            circle_football_native/build/badging.txt
+            circle_football_native/build/size.txt
+          if-no-files-found: error
+          retention-days: 7
