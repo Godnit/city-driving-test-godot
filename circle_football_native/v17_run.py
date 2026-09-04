@@ -25,7 +25,7 @@ old = '''def replace_method(text, name, replacement):
 new = '''def replace_method(text, name, replacement):
     import re
     pattern = (r'(?m)^        (?:@Override\\s+)?(?:(?:public|protected|private)\\s+)?'
-               r'(?:static\\s+)?(?:void|float|int|boolean|short\\[\\]|String)\\s+'
+               r'(?:static\\s+)?(?:void|float\\[\\]|float|int|boolean|short\\[\\]|String)\\s+'
                + re.escape(name) + r'\\s*\\(')
     m = re.search(pattern, text)
     if not m:
