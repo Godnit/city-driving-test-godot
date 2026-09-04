@@ -58,7 +58,7 @@ jobs:
           curl -fL --retry 3 -o "$A/crowd_burst.mp3" https://assets.mixkit.co/active_storage/sfx/2111/2111-preview.mp3
           curl -fL --retry 3 -o "$A/ui_click.mp3" https://assets.mixkit.co/active_storage/sfx/1114/1114-preview.mp3
           curl -fL --retry 3 -o "$A/crowd_loop.mp3" https://assets.mixkit.co/active_storage/sfx/363/363-preview.mp3
-          curl -fL --retry 3 -o "$A/menu_music.mp3" https://assets.mixkit.co/music/preview/mixkit-sports-highlights-51.mp3
+          curl -fL --retry 3 -o "$A/menu_music.mp3" https://raw.githubusercontent.com/argosopentech/Conquest/d0dbaa8fb50ef9348a8910cac2c80e453c99bd0a/Assets/Audio/loops/mixkit-sports-highlights-51.mp3
 
           ffmpeg -hide_banner -loglevel error -y -i "$A/kick_a.mp3" -t 1.4 -ac 1 -ar 22050 -b:a 80k res/raw/kick_a.mp3
           ffmpeg -hide_banner -loglevel error -y -i "$A/kick_b.mp3" -t 1.4 -ac 1 -ar 22050 -b:a 80k res/raw/kick_b.mp3
