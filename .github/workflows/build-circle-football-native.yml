@@ -2,7 +2,7 @@ name: Build Circle Football Native Android 8.1
 
 on:
   push:
-    branches: [circle-football-v1.2-smart-controls]
+    branches: [circle-football-v1.3-hax-physics]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -37,6 +37,15 @@ jobs:
           yes | "$SDKM" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
           "$SDKM" --sdk_root="$ANDROID_SDK_ROOT" "platforms;android-35" "build-tools;35.0.1" "platform-tools"
 
+      - name: Apply Hax-like v1.3 physics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd circle_football_native
+          python3 v13_patch.py
+          grep -q "physicsStepV13" src/com/godnit/circlefootballlite/MainActivity.java
+          grep -q "touchSoundCooldownV13" src/com/godnit/circlefootballlite/MainActivity.java
+
       - name: Compile pure Java game
         shell: bash
         run: |
@@ -61,8 +70,8 @@ jobs:
           cp dex/classes.dex classes.dex
           "$BT/aapt" add build/base.apk classes.dex >/dev/null
           "$BT/zipalign" -f 4 build/base.apk build/aligned.apk
-          keytool -genkeypair -noprompt -keystore build/debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Circle Football,O=Godnit,C=YE" -keyalg RSA -keysize 2048 -validity 10000
-          "$BT/apksigner" sign --ks build/debug.keystore --ks-pass pass:android --key-pass pass:android --out build/CircleFootball-Android81-v1.2.apk build/aligned.apk
+          base64 -d signing.keystore.b64 > build/circlefootball.keystore
+          "$BT/apksigner" sign --ks build/circlefootball.keystore --ks-pass pass:circlefootball --ks-key-alias circlefootball --key-pass pass:circlefootball --out build/CircleFootball-Android81-v1.3.apk build/aligned.apk
           rm -f classes.dex
 
       - name: Verify Android 8.1 compatibility and APK integrity
@@ -71,31 +80,33 @@ jobs:
           set -euo pipefail
           cd circle_football_native
           BT="$ANDROID_SDK_ROOT/build-tools/35.0.1"
-          APK=build/CircleFootball-Android81-v1.2.apk
+          APK=build/CircleFootball-Android81-v1.3.apk
           "$BT/apksigner" verify --verbose "$APK"
           unzip -tq "$APK"
           "$BT/aapt" dump badging "$APK" | tee build/badging.txt
-          grep -q "package: name='com.godnit.circlefootballlite.v12'" build/badging.txt
+          grep -q "package: name='com.godnit.circlefootballlite.v13'" build/badging.txt
           grep -q "sdkVersion:'21'" build/badging.txt
           grep -q "targetSdkVersion:'35'" build/badging.txt
           ! grep -q "native-code:" build/badging.txt
           test $(stat -c%s "$APK") -lt 2000000
           echo "APK_SIZE_BYTES=$(stat -c%s "$APK")" | tee build/size.txt
+          "$BT/apksigner" verify --print-certs "$APK" | tee build/signing.txt
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: CircleFootball-Android81-v1.2-APK
-          path: circle_football_native/build/CircleFootball-Android81-v1.2.apk
+          name: CircleFootball-Android81-v1.3-APK
+          path: circle_football_native/build/CircleFootball-Android81-v1.3.apk
           if-no-files-found: error
           retention-days: 14
 
       - name: Upload verification report
         uses: actions/upload-artifact@v4
         with:
-          name: CircleFootball-Android81-v1.2-Report
+          name: CircleFootball-Android81-v1.3-Report
           path: |
             circle_football_native/build/badging.txt
             circle_football_native/build/size.txt
+            circle_football_native/build/signing.txt
           if-no-files-found: error
           retention-days: 7
