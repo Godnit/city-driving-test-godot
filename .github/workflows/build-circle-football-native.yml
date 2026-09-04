@@ -1,6 +1,8 @@
 name: Build Circle Football Native Android 8.1
 
 on:
+  push:
+    branches: [circle-football-native-android81]
   pull_request:
     branches: [main]
   workflow_dispatch:
