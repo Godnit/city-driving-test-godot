@@ -1,8 +1,8 @@
-name: Build Circle Football v2.0
+name: Build Circle Football v2.1
 
 on:
   push:
-    branches: [circle-football-v2.0-possession-shot-stick]
+    branches: [circle-football-v2.1-haxball-physics]
   workflow_dispatch:
 
 permissions:
@@ -19,16 +19,16 @@ jobs:
           java-version: '17'
       - name: Build and verify APK
         shell: bash
-        run: bash circle_football_native/build_v20.sh
+        run: bash circle_football_native/build_v21.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: CircleFootball-Android81-v2.0-APK
-          path: circle_football_native/build/CircleFootball-Android81-v2.0.apk
+          name: CircleFootball-Android81-v2.1-APK
+          path: circle_football_native/build/CircleFootball-Android81-v2.1.apk
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@v4
         with:
-          name: CircleFootball-Android81-v2.0-Report
+          name: CircleFootball-Android81-v2.1-Report
           path: |
             circle_football_native/build/badging.txt
             circle_football_native/build/size.txt
