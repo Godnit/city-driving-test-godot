@@ -2,7 +2,7 @@ name: Build Circle Football Native Android 8.1
 
 on:
   push:
-    branches: [circle-football-v1.5-team-ai]
+    branches: [circle-football-v1.6-coordinated-ai]
   workflow_dispatch:
 
 permissions:
@@ -35,17 +35,18 @@ jobs:
           yes | "$SDKM" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
           "$SDKM" --sdk_root="$ANDROID_SDK_ROOT" "platforms;android-35" "build-tools;35.0.1" "platform-tools"
 
-      - name: Generate v1.5 team AI game
+      - name: Validate v1.6 source features
         shell: bash
         run: |
           set -euo pipefail
           cd circle_football_native
-          python3 v15_generate.py
-          grep -q '2 vs 2' src/com/godnit/circlefootballlite/MainActivity.java
-          grep -q 'kickFrom' src/com/godnit/circlefootballlite/MainActivity.java
-          grep -q 'emitKickParticles' src/com/godnit/circlefootballlite/MainActivity.java
-          grep -q 'drawBall' src/com/godnit/circlefootballlite/MainActivity.java
-          grep -q 'isLaneBlocked' src/com/godnit/circlefootballlite/MainActivity.java
+          SRC=src/com/godnit/circlefootballlite/MainActivity.java
+          grep -q '1v1.*2v2.*3v3.*4v4' "$SRC"
+          grep -q 'resolveBallDisc' "$SRC"
+          grep -q 'chooseChasers' "$SRC"
+          grep -q 'bestPassTarget' "$SRC"
+          grep -q 'emitMotionTrail' "$SRC"
+          grep -q 'drawFootball' "$SRC"
 
       - name: Compile pure Java game
         shell: bash
@@ -71,8 +72,8 @@ jobs:
           cp dex/classes.dex classes.dex
           "$BT/aapt" add build/base.apk classes.dex >/dev/null
           "$BT/zipalign" -f 4 build/base.apk build/aligned.apk
-          keytool -genkeypair -noprompt -keystore build/debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Circle Football v1.5,O=Godnit,C=YE" -keyalg RSA -keysize 2048 -validity 10000
-          "$BT/apksigner" sign --ks build/debug.keystore --ks-pass pass:android --key-pass pass:android --out build/CircleFootball-Android81-v1.5.apk build/aligned.apk
+          keytool -genkeypair -noprompt -keystore build/debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Circle Football v1.6,O=Godnit,C=YE" -keyalg RSA -keysize 2048 -validity 10000
+          "$BT/apksigner" sign --ks build/debug.keystore --ks-pass pass:android --key-pass pass:android --out build/CircleFootball-Android81-v1.6.apk build/aligned.apk
           rm -f classes.dex
 
       - name: Verify Android 8.1 compatibility and APK integrity
@@ -81,11 +82,11 @@ jobs:
           set -euo pipefail
           cd circle_football_native
           BT="$ANDROID_SDK_ROOT/build-tools/35.0.1"
-          APK=build/CircleFootball-Android81-v1.5.apk
+          APK=build/CircleFootball-Android81-v1.6.apk
           "$BT/apksigner" verify --verbose "$APK"
           unzip -tq "$APK"
           "$BT/aapt" dump badging "$APK" | tee build/badging.txt
-          grep -q "package: name='com.godnit.circlefootballlite.v15'" build/badging.txt
+          grep -q "package: name='com.godnit.circlefootballlite.v16'" build/badging.txt
           grep -q "sdkVersion:'21'" build/badging.txt
           grep -q "targetSdkVersion:'35'" build/badging.txt
           ! grep -q "native-code:" build/badging.txt
@@ -95,15 +96,15 @@ jobs:
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: CircleFootball-Android81-v1.5-APK
-          path: circle_football_native/build/CircleFootball-Android81-v1.5.apk
+          name: CircleFootball-Android81-v1.6-APK
+          path: circle_football_native/build/CircleFootball-Android81-v1.6.apk
           if-no-files-found: error
           retention-days: 14
 
       - name: Upload verification report
         uses: actions/upload-artifact@v4
         with:
-          name: CircleFootball-Android81-v1.5-Report
+          name: CircleFootball-Android81-v1.6-Report
           path: |
             circle_football_native/build/badging.txt
             circle_football_native/build/size.txt
