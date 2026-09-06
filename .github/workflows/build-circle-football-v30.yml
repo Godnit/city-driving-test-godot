@@ -2,7 +2,7 @@ name: Build Circle Football v3.0
 
 on:
   push:
-    branches: [circle-football-v3.0-role-ai-stable]
+    branches: [circle-football-v2.9-role-possession-video-field]
   workflow_dispatch:
 
 permissions:
