@@ -22,6 +22,7 @@ python3 v23_patch.py
 python3 v24_patch.py
 python3 v25_patch.py
 python3 v26_patch.py
+python3 v26_fix.py
 
 grep -q 'goalPauseTimer' src/com/godnit/circlefootballlite/MainActivity.java
 grep -q 'drawStadiumPreviewV26' src/com/godnit/circlefootballlite/MainActivity.java
